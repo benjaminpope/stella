@@ -8,7 +8,7 @@ from .version import __version__
 # Import submodules directly, e.g. `from stella.neural_network import ConvNN`.
 
 # Convenience backend utilities exposed at top-level.
-from .backends import check_backend, benchmark, swap_backend  # noqa: F401
+from .backends import check_backend, benchmark, swap_backend, require_backend  # noqa: F401
 from . import models  # noqa: F401
 
 __all__ = [
@@ -16,6 +16,7 @@ __all__ = [
     "check_backend",
     "benchmark",
     "swap_backend",
+    "require_backend",
     "models",
 ]
 

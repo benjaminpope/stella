@@ -71,3 +71,9 @@ include = ["stella", "stella.*"]
 
 [tool.setuptools.dynamic]
 version = { attr = "stella.version.__version__" }
+
+[tool.pytest.ini_options]
+addopts = "-x --doctest-modules"
+testpaths = [
+  "stella/tests",
+]
