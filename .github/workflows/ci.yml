@@ -45,8 +45,10 @@ jobs:
       - name: Install backend (Torch)
         if: matrix.backend == 'torch'
         run: |
-          pip install -r requirements-torch.txt
-          echo "KERAS_BACKEND=torch" >> $GITHUB_ENV
+            pip install -r requirements-torch.txt
+            # Tell PyTorch MPS to disable the shared pool to avoid OOM on GitHub macOS runners
+            echo "PYTORCH_MPS_HIGH_WATERMARK_RATIO=0.0" >> $GITHUB_ENV
+            echo "KERAS_BACKEND=torch" >> $GITHUB_ENV
       - name: Install package
         run: |
           python -m pip install --upgrade pip build setuptools wheel
