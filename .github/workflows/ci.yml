@@ -49,6 +49,8 @@ jobs:
           pip install -r requirements-torch.txt
           echo "KERAS_BACKEND=torch" >> $GITHUB_ENV
       - name: Install package
-        run: python setup.py install
+        run: |
+          python -m pip install --upgrade pip build setuptools wheel
+          pip install .
       - name: Run tests
         run: pytest stella/tests -q
