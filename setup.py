@@ -42,7 +42,10 @@ setup(
     description='For finding flares in TESS 2-min data with a CNN',
     long_description=long_description,
     long_description_content_type="text/markdown",
-    package_data={'': ['README.md', 'LICENSE']},
+    package_data={
+        '': ['README.md', 'LICENSE'],
+        'stella': ['data/*.keras'],
+    },
     install_requires=install_requires,
     classifiers=[
         'Development Status :: 3 - Alpha',

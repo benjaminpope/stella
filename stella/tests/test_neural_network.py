@@ -1,6 +1,6 @@
 import pytest
 from numpy.testing import assert_almost_equal
-from pathlib import Path
+from importlib import resources as importlib_resources
 
 pytestmark = pytest.mark.downloads  # allow network, avoid training
 
@@ -15,7 +15,7 @@ def test_keras_backend_is_jax():
 def test_predict(tmp_path):
     from lightkurve.search import search_lightcurve
     from stella.neural_network import ConvNN
-    model_path = str(Path(__file__).resolve().parents[2] / "data" / "ensemble_s0002_i0010_b0.73.keras")
+    model_path = str(importlib_resources.files('stella.data') / 'ensemble_s0002_i0010_b0.73_savedmodel.keras')
     lk = search_lightcurve(target='tic62124646', mission='TESS',
                            sector=13, exptime=120, author='SPOC')
     lk = lk.download(download_dir='.')
