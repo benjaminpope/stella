@@ -34,6 +34,32 @@ dependencies = [
   "lightkurve>=2.0.0",
 ]
 
+[project.optional-dependencies]
+jax = [
+  "jax>=0.4.20",
+  "jaxlib>=0.4.20",
+]
+# JAX on Apple Silicon with Metal (macOS only)
+jax-mps = [
+  "jax>=0.4.20",
+  "jaxlib>=0.4.20",
+  "jax-metal>=0.0.7; platform_system=='Darwin'",
+]
+torch = [
+  "torch>=2.2.0",
+]
+dev = [
+  "pytest",
+  "pytest-cov",
+  "nbsphinx",
+  "ipykernel",
+  "coverage",
+  "codecov",
+]
+all-backends = [
+  "stella[jax,torch]",
+]
+
 [tool.setuptools]
 include-package-data = true
 
