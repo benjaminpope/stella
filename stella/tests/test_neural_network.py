@@ -7,6 +7,7 @@ pytestmark = pytest.mark.downloads  # allow network, avoid training
 
 def test_keras_backend_is_jax():
     import os
+    pytest.importorskip("jax")
 
     os.environ["KERAS_BACKEND"] = "jax"
     import keras

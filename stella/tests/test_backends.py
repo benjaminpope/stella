@@ -22,6 +22,7 @@ def _run_minimal_model(expect_backend: str):
 
 
 def test_minimal_jax():
+    pytest.importorskip("jax")
     # Only run if keras is either not imported or already using jax
     if "keras" in sys.modules:
         import keras
