@@ -45,6 +45,7 @@ def _extract_series(
                 try:
                     lc = lc[lc.quality == 0]
                 except Exception:
+                    # Skip quality filtering if indexing fails (e.g., incompatible quality attribute)
                     pass
         except Exception:
             # Best-effort: continue without mutation
