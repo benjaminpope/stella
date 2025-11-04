@@ -37,8 +37,20 @@ def test_minimal_jax():
 def test_minimal_torch():
     torch = pytest.importorskip("torch")
     if hasattr(torch.backends, "mps"):
+        # If MPS is present, verify it's actually usable (not just detected).
         if not (torch.backends.mps.is_available() and torch.backends.mps.is_built()):
             pytest.skip("MPS backend not available or not built.")
+        # Try a tiny allocation on MPS to detect early OOM / unusable MPS devices.
+        try:
+            # This small allocation can raise RuntimeError if MPS is unusable/out of memory.
+            _ = torch.zeros(1, device="mps")
+        except RuntimeError as e:
+            msg = str(e).lower()
+            if "mps backend out of memory" in msg or "mps" in msg and "out of memory" in msg:
+                pytest.skip("MPS backend present but out of memory; skipping MPS-based torch test.")
+            # if it's another runtime error, re-raise so we don't silently mask real issues
+            raise
+
     # Only run if keras is either not imported or already using torch
     if "keras" in sys.modules:
         import keras
