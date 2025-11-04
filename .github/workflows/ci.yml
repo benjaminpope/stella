@@ -13,10 +13,10 @@ jobs:
         include:
           - os: ubuntu-latest
             backend: jax
-            python: '3.10'
+            python: '3.12'
           - os: macos-14
             backend: torch
-            python: '3.10'
+            python: '3.12'
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -32,7 +32,7 @@ jobs:
           brew link --force gettext || true
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
+          python-version: ${{ matrix.python }}
       - name: Install dependencies (base)
         run: |
           python -m pip install --upgrade pip
