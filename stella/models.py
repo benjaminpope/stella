@@ -26,3 +26,9 @@ def get_model_path(name: Optional[str] = None) -> str:
     if name is None:
         name = DEFAULT_MODEL_NAME
     return str(_resources.files("stella.data") / name)
+
+
+# Convenience precomputed list of model paths for notebooks and quickstarts
+# Equivalent to calling list_model_paths().
+models: List[str] = list_model_paths()
+
