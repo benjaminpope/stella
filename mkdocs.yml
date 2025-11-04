@@ -35,7 +35,7 @@ nav:
       - Installation: getting_started/installation.md
       - Pipeline: getting_started/pipeline.md
       - Backends: getting_started/backends.md
-      - Tutorial (notebook): getting_started/tutorial.ipynb
+      - Tutorial: getting_started/tutorial.md
       - Shortest Demo: getting_started/shortest_demo.md
       - Other Features: getting_started/other_features.md
   - API:

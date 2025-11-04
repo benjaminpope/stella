@@ -14,22 +14,13 @@ jobs:
           - os: ubuntu-latest
             backend: jax
             python: '3.12'
-          - os: macos-14
+          - os: ubuntu-latest
             backend: torch
             python: '3.12'
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
-      - name: Ensure gettext on macOS
-        if: matrix.os == 'macos-14'
-        run: |
-          brew update
-          brew install gettext || true
-          if [ -e /opt/homebrew/opt/gettext/lib/libintl.8.dylib ]; then
-            sudo mkdir -p /usr/local/opt
-            sudo ln -sf /opt/homebrew/opt/gettext /usr/local/opt/gettext
-          fi
-          brew link --force gettext || true
+      # macOS-specific gettext step removed; both matrix jobs run on Linux now
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python }}
@@ -42,13 +33,11 @@ jobs:
         run: |
           pip install -r requirements-jax.txt
           echo "KERAS_BACKEND=jax" >> $GITHUB_ENV
-      - name: Install backend (Torch)
+        - name: Install backend (Torch)
         if: matrix.backend == 'torch'
         run: |
-            pip install -r requirements-torch.txt
-            # Tell PyTorch MPS to disable the shared pool to avoid OOM on GitHub macOS runners
-            echo "PYTORCH_MPS_HIGH_WATERMARK_RATIO=0.0" >> $GITHUB_ENV
-            echo "KERAS_BACKEND=torch" >> $GITHUB_ENV
+          pip install -r requirements-torch.txt
+          echo "KERAS_BACKEND=torch" >> $GITHUB_ENV
       - name: Install package
         run: |
           python -m pip install --upgrade pip build setuptools wheel
