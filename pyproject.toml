@@ -1,0 +1,47 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "stella"
+description = "Find stellar flares in TESS 2-min data with a CNN"
+readme = "README.md"
+license = { file = "LICENSE" }
+authors = [
+  { name = "Adina D. Feinstein", email = "adina.d.feinstein@gmail.com" }
+]
+requires-python = ">=3.8"
+dynamic = ["version"]
+keywords = ["astronomy", "tess", "flares", "keras", "jax", "pytorch"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Science/Research",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.8",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+]
+dependencies = [
+  "keras>=3.0.0",
+  "numpy",
+  "astropy",
+  "scikit-learn",
+  "scipy!=1.4.1",
+  "tqdm",
+  "lightkurve>=2.0.0",
+]
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+include = ["stella", "stella.*"]
+
+[tool.setuptools.package-data]
+"stella" = ["data/*.keras"]
+
+[tool.setuptools.dynamic]
+version = { attr = "stella.version.__version__" }
