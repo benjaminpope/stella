@@ -14,7 +14,7 @@ class ConvNN(object):
     neural network.
     """
 
-    def __init__(self, output_dir, ds=None,
+     def __init__(self, output_dir, ds=None,
                  layers=None, optimizer='adam',
                  loss='binary_crossentropy', 
                  metrics=None):
