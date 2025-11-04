@@ -36,7 +36,7 @@ nav:
       - Pipeline: getting_started/pipeline.md
       - Backends: getting_started/backends.md
       - Tutorial (notebook): getting_started/tutorial.ipynb
-      - Shortest Demo (notebook): getting_started/shortest_demo.ipynb
-      - Other Features (notebook): getting_started/other_features.ipynb
+      - Shortest Demo: getting_started/shortest_demo.md
+      - Other Features: getting_started/other_features.md
   - API:
       - stella: api.md
