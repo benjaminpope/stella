@@ -186,10 +186,11 @@ class FitFlares(object):
         kernel_size1 = 21
 
         for i in tqdm(range(len(self.IDs)), desc='Finding & Fitting Flares'):
-            time = self.time[i]+0.0
-            flux = self.flux[i]+0.0
-            err  = self.flux_err[i]+0.0
-            prob = self.predictions[i]+0.0
+            # Ensure numeric arrays (avoid object dtype from ragged wrappers)
+            time = np.asarray(self.time[i], dtype=float)
+            flux = np.asarray(self.flux[i], dtype=float)
+            err  = np.asarray(self.flux_err[i], dtype=float)
+            prob = np.asarray(self.predictions[i], dtype=float)
             
             where_prob_higher = np.where(prob >= threshold)[0]
             groupings = self.group_inds(where_prob_higher)
