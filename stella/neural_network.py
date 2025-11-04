@@ -22,7 +22,7 @@ class ConvNN(object):
           Creates and trains a Keras model (JAX backend)
           with either layers that have been passed in
           by the user or with default layers used in
-          Feinstein et al. (2020; in prep.).
+          Feinstein et al. (2020), https://arxiv.org/abs/2005.07710.
 
           Parameters
           ----------
