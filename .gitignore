@@ -19,3 +19,7 @@ dist
 *.cppimporthash
 .rendered.*
 *.egg-info
+
+## Local examples and helpers (not part of package)
+notebooks/jax_keras.ipynb
+scripts/
