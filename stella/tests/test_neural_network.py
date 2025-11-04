@@ -24,9 +24,11 @@ def test_processing():
     assert(pre.val_data.shape == (6, 200, 1))
     assert(pre.test_data.shape == (7, 200, 1))
 
-def test_tensorflow():
-    import tensorflow
-    assert(tensorflow.__version__ == '2.4.1')
+def test_keras_backend_is_jax():
+    import os
+    os.environ["KERAS_BACKEND"] = "jax"
+    import keras
+    assert keras.backend.backend() == "jax"
 
 cnn = ConvNN(output_dir='.', ds=pre)
 cnn.train_models(epochs=10, save=True, pred_test=True)
@@ -47,7 +49,7 @@ def test_predict():
     lk = lk.download(download_dir='.')#.PDCSAP_FLUX
     lk = lk.remove_nans()
 
-    cnn.predict(modelname='ensemble_s0002_i0010_b0.73.h5',
+    cnn.predict(modelname='ensemble_s0002_i0010_b0.73.keras',
                 times=lk.time.value,
                 fluxes=lk.flux.value,
                 errs=lk.flux_err.value)

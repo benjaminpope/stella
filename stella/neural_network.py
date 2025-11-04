@@ -1,8 +1,8 @@
 import os, glob
 import numpy as np
 from tqdm import tqdm
-import tensorflow as tf
-from tensorflow import keras
+os.environ.setdefault("KERAS_BACKEND", "jax")
+import keras
 from scipy.interpolate import interp1d
 from astropy.table import Table, Column
 
@@ -18,89 +18,89 @@ class ConvNN(object):
                  layers=None, optimizer='adam',
                  loss='binary_crossentropy', 
                  metrics=None):
-        """
-        Creates and trains a Tensorflow keras model
-        with either layers that have been passed in
-        by the user or with default layers used in
-        Feinstein et al. (2020; in prep.).
+          """
+          Creates and trains a Keras model (JAX backend)
+          with either layers that have been passed in
+          by the user or with default layers used in
+          Feinstein et al. (2020; in prep.).
 
-        Parameters
-        ----------
-        ds : stella.DataSet object
-        output_dir : str
-             Path to a given output directory for files.
-        training : float, optional
-             Assigns the percentage of training set data for training.
-             Default is 80%.
-        validation : float, optional
-             Assigns the percentage of training set data for validation.
-             Default is 10%.
-        layers : np.array, optional
-             An array of keras.layers for the ConvNN.
-        optimizer : str, optional
-             Optimizer used to compile keras model. Default is 'adam'.
-        loss : str, optional
-             Loss function used to compile keras model. Default is
-             'binary_crossentropy'.
-        metrics: np.array, optional
-             Metrics used to train the keras model on. If None, metrics are
-             [accuracy, precision, recall].
-        epochs : int, optional
-             Number of epochs to train the keras model on. Default is 15.
-        seed : int, optional
-             Sets random seed for reproducable results. Default is 2.
-        output_dir : path, optional
-             The path to save models/histories/predictions to. Default is
-             to create a hidden ~/.stella directory.
+          Parameters
+          ----------
+          ds : stella.DataSet object
+          output_dir : str
+               Path to a given output directory for files.
+          training : float, optional
+               Assigns the percentage of training set data for training.
+               Default is 80%.
+          validation : float, optional
+               Assigns the percentage of training set data for validation.
+               Default is 10%.
+          layers : np.array, optional
+               An array of keras.layers for the ConvNN.
+          optimizer : str, optional
+               Optimizer used to compile keras model. Default is 'adam'.
+          loss : str, optional
+               Loss function used to compile keras model. Default is
+               'binary_crossentropy'.
+          metrics: np.array, optional
+               Metrics used to train the keras model on. If None, metrics are
+               [accuracy, precision, recall].
+          epochs : int, optional
+               Number of epochs to train the keras model on. Default is 15.
+          seed : int, optional
+               Sets random seed for reproducable results. Default is 2.
+          output_dir : path, optional
+               The path to save models/histories/predictions to. Default is
+               to create a hidden ~/.stella directory.
 
-        Attributes
-        ----------
-        layers : np.array
-        optimizer : str
-        loss : str
-        metrics : np.array
-        training_matrix : stella.TrainingSet.training_matrix
-        labels : stella.TrainingSet.labels
-        image_fmt : stella.TrainingSet.cadences
-        """
-        self.ds = ds
-        self.layers = layers
-        self.optimizer = optimizer
-        self.loss = loss
-        self.metrics = metrics
+          Attributes
+          ----------
+          layers : np.array
+          optimizer : str
+          loss : str
+          metrics : np.array
+          training_matrix : stella.TrainingSet.training_matrix
+          labels : stella.TrainingSet.labels
+          image_fmt : stella.TrainingSet.cadences
+          """
+          self.ds = ds
+          self.layers = layers
+          self.optimizer = optimizer
+          self.loss = loss
+          self.metrics = metrics
 
-        if ds is not None:
-            self.training_matrix = np.copy(ds.training_matrix)
-            self.labels = np.copy(ds.labels)
-            self.cadences = np.copy(ds.cadences)
+          if ds is not None:
+               self.training_matrix = np.copy(ds.training_matrix)
+               self.labels = np.copy(ds.labels)
+               self.cadences = np.copy(ds.cadences)
 
-            self.frac_balance = ds.frac_balance + 0.0
+               self.frac_balance = ds.frac_balance + 0.0
 
-            self.tpeaks = ds.training_peaks
-            self.training_ids = ds.training_ids
+               self.tpeaks = ds.training_peaks
+               self.training_ids = ds.training_ids
 
-        else:
-            print("WARNING: No stella.DataSet object passed in.")
-            print("Can only use stella.ConvNN.predict().")
+          else:
+               print("WARNING: No stella.DataSet object passed in.")
+               print("Can only use stella.ConvNN.predict().")
 
-        self.prec_recall_curve = None
-        self.history = None
-        self.history_table = None
+          self.prec_recall_curve = None
+          self.history = None
+          self.history_table = None
 
-        self.output_dir = output_dir
+          self.output_dir = output_dir
 
 
     def create_model(self, seed):
         """
-        Creates the Tensorflow keras model with appropriate layers.
+          Creates the Keras model with appropriate layers.
         
         Attributes
         ----------
-        model : tensorflow.python.keras.engine.sequential.Sequential
+          model : keras.models.Sequential
         """
         # SETS RANDOM SEED FOR REPRODUCABLE RESULTS
         np.random.seed(seed)
-        tf.random.set_seed(seed)
+        keras.utils.set_random_seed(seed)
 
         # INITIALIZE CLEAN MODEL
         keras.backend.clear_session()
@@ -115,21 +115,21 @@ class ConvNN(object):
             dropout = 0.1
 
             # CONVOLUTIONAL LAYERS
-            model.add(tf.keras.layers.Conv1D(filters=filter1, kernel_size=7, 
-                                             activation='relu', padding='same', 
-                                             input_shape=(self.cadences, 1)))
-            model.add(tf.keras.layers.MaxPooling1D(pool_size=2))
-            model.add(tf.keras.layers.Dropout(dropout))
-            model.add(tf.keras.layers.Conv1D(filters=filter2, kernel_size=3, 
-                                             activation='relu', padding='same'))
-            model.add(tf.keras.layers.MaxPooling1D(pool_size=2))
-            model.add(tf.keras.layers.Dropout(dropout))
+            model.add(keras.layers.Conv1D(filters=filter1, kernel_size=7, 
+                                          activation='relu', padding='same', 
+                                          input_shape=(self.cadences, 1)))
+            model.add(keras.layers.MaxPooling1D(pool_size=2))
+            model.add(keras.layers.Dropout(dropout))
+            model.add(keras.layers.Conv1D(filters=filter2, kernel_size=3, 
+                                          activation='relu', padding='same'))
+            model.add(keras.layers.MaxPooling1D(pool_size=2))
+            model.add(keras.layers.Dropout(dropout))
             
             # DENSE LAYERS AND SOFTMAX OUTPUT
-            model.add(tf.keras.layers.Flatten())
-            model.add(tf.keras.layers.Dense(dense, activation='relu'))
-            model.add(tf.keras.layers.Dropout(dropout))
-            model.add(tf.keras.layers.Dense(1, activation='sigmoid'))
+            model.add(keras.layers.Flatten())
+            model.add(keras.layers.Dense(dense, activation='relu'))
+            model.add(keras.layers.Dropout(dropout))
+            model.add(keras.layers.Dense(1, activation='sigmoid'))
             
         else:
             for l in self.layers:
@@ -139,8 +139,8 @@ class ConvNN(object):
         if self.metrics is None:
             model.compile(optimizer=self.optimizer,
                           loss=self.loss,
-                          metrics=['accuracy', tf.keras.metrics.Precision(), 
-                                   tf.keras.metrics.Recall()])
+                          metrics=['accuracy', keras.metrics.Precision(),
+                                   keras.metrics.Recall()])
         else:
             model.compile(optimizer=self.optimizer,
                           loss=self.loss,
@@ -230,7 +230,7 @@ class ConvNN(object):
         for seed in seeds:
             
             fmt_tail = '_s{0:04d}_i{1:04d}_b{2}'.format(int(seed), int(epochs), self.frac_balance)
-            model_fmt = 'ensemble' + fmt_tail + '.h5'
+            model_fmt = 'ensemble' + fmt_tail + '.keras'
 
             keras.backend.clear_session()
             
@@ -362,10 +362,10 @@ class ConvNN(object):
                                      validation_data=(x_val, y_val))
 
             # SAVES THE MODEL BY DEFAULT
-            self.model.save(os.path.join(self.output_dir, 'crossval_s{0:04d}_i{1:04d}_b{2}_f{3:04d}.h5'.format(int(seed),
-                                                                                                               int(epochs),
-                                                                                                               self.frac_balance,
-                                                                                                               i)))
+            self.model.save(os.path.join(self.output_dir, 'crossval_s{0:04d}_i{1:04d}_b{2}_f{3:04d}.keras'.format(int(seed),
+                                                                                                                int(epochs),
+                                                                                                                self.frac_balance,
+                                                                                                                i)))
             
 
             # CALCULATE METRICS FOR VALIDATION SET
@@ -474,7 +474,7 @@ class ConvNN(object):
              
         Attributes
         ----------
-        model : tensorflow.python.keras.engine.sequential.Sequential
+     model : keras.models.Sequential
              The model input with modelname.
         predict_time : np.ndarray
              The input times array.
@@ -520,8 +520,8 @@ class ConvNN(object):
         self.model = model
 
         # GETS REQUIRED INPUT SHAPE FROM MODEL
-        cadences = model.input.shape[1]
-        cad_pad  = cadences/2
+        cadences = int(model.input_shape[1])
+        cad_pad  = cadences // 2
 
         # REFORMATS FOR A SINGLE LIGHT CURVE PASSED IN
         try:

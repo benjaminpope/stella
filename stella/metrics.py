@@ -60,7 +60,7 @@ class ModelMetrics(object):
             files = np.sort([i for i in df if 'ensemble' in i])
             seeds = []
 
-        self.models  = [i for i in files if i.endswith('.h5')]
+        self.models  = [i for i in files if i.endswith('.keras')]
 
         predval = [i for i in files if 'predval' in i][0]
         history = [i for i in files if 'histories' in i][0]

@@ -29,6 +29,24 @@ Alternatively you can install the current development version of stella:
         cd stella
         python setup.py install
 
+Backend and models
+------------------
+- stella uses Keras Core with the JAX backend. Set the backend before importing `keras`:
+
+```bash
+export KERAS_BACKEND=jax
+```
+
+- Models are saved/loaded in the native Keras format (`.keras`). If you have older `.h5`
+  models, re-save them once with TF-Keras and then use them with Keras Core:
+
+```python
+# one-time conversion in an environment that has TensorFlow:
+import tensorflow as tf
+m = tf.keras.models.load_model("old.h5")
+m.save("new.keras")
+```
+
 <p>
 If your work uses the stella software, please cite <a href="https://ui.adsabs.harvard.edu/abs/2020JOSS....5.2347F/abstract">Feinstein, Montet, & Ansdell (2020)</a>.
 </p>
