@@ -1,3 +1,6 @@
+mastDownload/
+stella/mastDownload/
+*.fits
 __pycache__
 */__pycache__
 */*/__pycache__
