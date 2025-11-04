@@ -6,7 +6,7 @@ stella is an open-source Python framework for identifying stellar flares in TESS
 
 - Backends: set `KERAS_BACKEND` to `jax` (default) or `torch`.
 - Packaged models: `from stella import models as sm; sm.models`.
-- Quickstart notebooks live under Getting Started.
+- Quickstart notebooks live under [Getting Started](getting_started/about.md).
 
 Getting started
 ---------------
@@ -18,8 +18,8 @@ pip install -e .[dev]
 
 Citations
 ---------
-- (Feinstein, Montet, & Ansdell (2020), JOSS)[https://ui.adsabs.harvard.edu/abs/2020JOSS....5.2347F/]abstract
-- (Feinstein et al. (2020, arXiv))[https://ui.adsabs.harvard.edu/abs/2020arXiv200507710F/abstract]
+- [Feinstein, Montet, & Ansdell (2020), JOSS](https://ui.adsabs.harvard.edu/abs/2020JOSS....5.2347F/abstract)
+- [Feinstein et al. (2020, arXiv)](https://ui.adsabs.harvard.edu/abs/2020arXiv200507710F/abstract)
 
 Bug reports and contributions
 -----------------------------
@@ -27,5 +27,5 @@ stella is MIT-licensed.
 
 Source and issues on GitHub:
 
-- (Repo)[https://github.com/benjaminpope/stella]
-- (Issues)[https://github.com/benjaminpope/stella/issues]
+- [Repo](https://github.com/benjaminpope/stella)
+- [Issues](https://github.com/benjaminpope/stella/issues)
