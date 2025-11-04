@@ -36,11 +36,12 @@ def test_minimal_jax():
 
 def test_minimal_torch():
     torch = pytest.importorskip("torch")
-
+    if hasattr(torch.backends, "mps"):
+        if not (torch.backends.mps.is_available() and torch.backends.mps.is_built()):
+            pytest.skip("MPS backend not available or not built.")
     # Only run if keras is either not imported or already using torch
     if "keras" in sys.modules:
         import keras
-
         if keras.backend.backend() != "torch":
             return  # skip if another backend is already active
     else:
