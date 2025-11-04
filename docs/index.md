@@ -18,11 +18,14 @@ pip install -e .[dev]
 
 Citations
 ---------
-- Feinstein, Montet, & Ansdell (2020), JOSS — https://ui.adsabs.harvard.edu/abs/2020JOSS....5.2347F/abstract
-- Feinstein et al. (2020, arXiv) — https://ui.adsabs.harvard.edu/abs/2020arXiv200507710F/abstract
+- (Feinstein, Montet, & Ansdell (2020), JOSS)[https://ui.adsabs.harvard.edu/abs/2020JOSS....5.2347F/]abstract
+- (Feinstein et al. (2020, arXiv))[https://ui.adsabs.harvard.edu/abs/2020arXiv200507710F/abstract]
 
 Bug reports and contributions
 -----------------------------
-stella is MIT-licensed. Source and issues on GitHub:
-- Repo: https://github.com/benjaminpope/stella
-- Issues: https://github.com/benjaminpope/stella/issues
+stella is MIT-licensed. 
+
+Source and issues on GitHub:
+
+- (Repo)[https://github.com/benjaminpope/stella]
+- (Issues)[https://github.com/benjaminpope/stella/issues]
