@@ -89,7 +89,8 @@ class FitFlares(object):
                 if i == len(values)-1:
                     results.append(temp)
 
-        return np.array(results)
+        # Ensure a ragged array of index groups is returned safely under NumPy>=1.24
+        return np.array(results, dtype=object)
 
 
     def get_init_guesses(self, groupings, time, flux, err, prob, 
