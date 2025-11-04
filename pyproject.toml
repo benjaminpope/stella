@@ -55,6 +55,9 @@ dev = [
   "ipykernel",
   "coverage",
   "codecov",
+  "pre-commit",
+  "sphinx>=7.0",
+  "sphinx_rtd_theme>=1.3",
 ]
 all-backends = [
   "stella[jax,torch]",
@@ -71,6 +74,17 @@ include = ["stella", "stella.*"]
 
 [tool.setuptools.dynamic]
 version = { attr = "stella.version.__version__" }
+
+[tool.black]
+line-length = 88
+target-version = ["py38"]
+include = '\.pyi?$'
+exclude = '''
+/(
+  \.eggs|\.git|\.hg|\.mypy_cache|\.nox|\.tox|\.venv|
+  _build|buck-out|build|dist|stella\.egg-info|docs/_build|mastDownload|run01
+)/
+'''
 
 [tool.pytest.ini_options]
 addopts = "-x --doctest-modules"

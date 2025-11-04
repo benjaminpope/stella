@@ -9,6 +9,7 @@ from typing import Dict, List, Optional
 def _keras_current_backend() -> Optional[str]:
     try:
         import keras
+
         return keras.backend.backend()
     except Exception:
         return os.environ.get("KERAS_BACKEND")
@@ -18,6 +19,7 @@ def _jax_info() -> Dict:
     info = {"name": "jax", "installed": False, "devices": [], "details": {}}
     try:
         import jax  # type: ignore
+
         info["installed"] = True
         devs = jax.devices()
         info["devices"] = [f"{d.platform}:{d.id}" for d in devs]
@@ -32,6 +34,7 @@ def _torch_info() -> Dict:
     info = {"name": "torch", "installed": False, "devices": [], "details": {}}
     try:
         import torch  # type: ignore
+
         info["installed"] = True
         cuda = torch.cuda.is_available()
         mps = getattr(getattr(torch, "backends", None), "mps", None)
@@ -80,8 +83,13 @@ def check_backend(print_summary: bool = True) -> Dict:
         ]
         # JAX summary
         if jax_info["installed"]:
-            kinds = ", ".join(jax_info.get("details", {}).get("kinds", [])) or "(no devices)"
-            lines.append(f"- jax: installed; devices={jax_info['devices']} kinds={kinds}")
+            kinds = (
+                ", ".join(jax_info.get("details", {}).get("kinds", []))
+                or "(no devices)"
+            )
+            lines.append(
+                f"- jax: installed; devices={jax_info['devices']} kinds={kinds}"
+            )
         else:
             lines.append("- jax: not installed")
         # Torch summary
@@ -93,7 +101,9 @@ def check_backend(print_summary: bool = True) -> Dict:
             if det.get("mps"):
                 acc.append("MPS")
             acc_s = ", ".join(acc) if acc else "CPU"
-            lines.append(f"- torch: installed; accel={acc_s}; devices={torch_info['devices']}")
+            lines.append(
+                f"- torch: installed; accel={acc_s}; devices={torch_info['devices']}"
+            )
         else:
             lines.append("- torch: not installed")
         print("\n".join(lines))
@@ -116,12 +126,24 @@ def require_backend(backend: Optional[str] = None) -> None:
         If the required backend is not installed or has no available devices.
     """
     info = check_backend(print_summary=False)
-    be = (backend or info.get("current") or os.environ.get("KERAS_BACKEND") or "").strip().lower()
+    be = (
+        (backend or info.get("current") or os.environ.get("KERAS_BACKEND") or "")
+        .strip()
+        .lower()
+    )
+    # Auto-select a sensible default if none is set: prefer JAX, then Torch
     if be not in ("jax", "torch"):
-        raise RuntimeError(
-            "No Keras backend selected. Set KERAS_BACKEND to 'jax' or 'torch', "
-            "or pass backend='jax'/'torch' to require_backend()."
-        )
+        candidates = info.get("candidates", [])
+        if "jax" in candidates:
+            be = "jax"
+        elif "torch" in candidates:
+            be = "torch"
+        else:
+            raise RuntimeError(
+                "No Keras backend installed. Install one with: "
+                "pip install stella[jax]  (or)  pip install stella[torch]"
+            )
+        os.environ["KERAS_BACKEND"] = be
 
     ok = be in info.get("candidates", [])
     if not ok:
@@ -136,10 +158,14 @@ def require_backend(backend: Optional[str] = None) -> None:
     return
 
 
-def _subprocess_benchmark(model_path: str, target: str, sector: int, exptime: int, author: str) -> Dict:
+def _subprocess_benchmark(
+    model_path: str, target: str, sector: int, exptime: int, author: str
+) -> Dict:
     """Run the actual timed inference in a fresh process for the active KERAS_BACKEND."""
     # Silence lightkurve noisy warnings
-    warnings.filterwarnings("ignore", message=r".*tpfmodel submodule is not available.*")
+    warnings.filterwarnings(
+        "ignore", message=r".*tpfmodel submodule is not available.*"
+    )
     warnings.filterwarnings("ignore", message=r".*Lightkurve cache directory.*")
 
     import keras  # type: ignore
@@ -171,7 +197,9 @@ def _subprocess_benchmark(model_path: str, target: str, sector: int, exptime: in
     cnn = ConvNN(output_dir=".")
     n_warm = min(5 * cadences, len(t))
     _t0 = time.perf_counter()
-    cnn.predict(modelname=model_path, times=t[:n_warm], fluxes=f[:n_warm], errs=e[:n_warm])
+    cnn.predict(
+        modelname=model_path, times=t[:n_warm], fluxes=f[:n_warm], errs=e[:n_warm]
+    )
 
     # Timed full predict
     t0 = time.perf_counter()
@@ -235,7 +263,9 @@ def benchmark(
         t0 = time.perf_counter()
         from subprocess import Popen, PIPE
 
-        p = Popen([sys.executable, "-c", code], env=env, stdout=PIPE, stderr=PIPE, text=True)
+        p = Popen(
+            [sys.executable, "-c", code], env=env, stdout=PIPE, stderr=PIPE, text=True
+        )
         out, err = p.communicate()
         elapsed = time.perf_counter() - t0
         if p.returncode != 0:
@@ -257,14 +287,18 @@ def benchmark(
     print("Benchmark results (lower is better):")
     for be, r in results.items():
         if "seconds" in r:
-            print(f"- {be}: {r['seconds']:.3f}s predict (wall {r['elapsed_wall']:.3f}s), points={r.get('points')} cadences={r.get('cadences')}")
+            print(
+                f"- {be}: {r['seconds']:.3f}s predict (wall {r['elapsed_wall']:.3f}s), points={r.get('points')} cadences={r.get('cadences')}"
+            )
         else:
             print(f"- {be}: ERROR {r.get('error') or r}")
 
     return {"backends": candidates, "results": results}
 
 
-def _apply_accelerator_env(backend: str, accelerator: Optional[str], env: Dict[str, str]) -> None:
+def _apply_accelerator_env(
+    backend: str, accelerator: Optional[str], env: Dict[str, str]
+) -> None:
     acc = (accelerator or "").lower().strip()
     if backend == "torch":
         if acc == "cpu":
@@ -286,7 +320,9 @@ def _apply_accelerator_env(backend: str, accelerator: Optional[str], env: Dict[s
             env["JAX_PLATFORM_NAME"] = "metal"
 
 
-def swap_backend(backend: str, accelerator: Optional[str] = None, restart: bool = False) -> Dict:
+def swap_backend(
+    backend: str, accelerator: Optional[str] = None, restart: bool = False
+) -> Dict:
     """
     Prepare environment for a different Keras backend and accelerator.
 
@@ -316,12 +352,22 @@ def swap_backend(backend: str, accelerator: Optional[str] = None, restart: bool 
         "requested_backend": be,
         "accelerator": accelerator,
         "already_imported": already,
-        "env_preview": {k: env.get(k) for k in ("KERAS_BACKEND", "JAX_PLATFORM_NAME", "CUDA_VISIBLE_DEVICES", "PYTORCH_ENABLE_MPS_FALLBACK")},
+        "env_preview": {
+            k: env.get(k)
+            for k in (
+                "KERAS_BACKEND",
+                "JAX_PLATFORM_NAME",
+                "CUDA_VISIBLE_DEVICES",
+                "PYTORCH_ENABLE_MPS_FALLBACK",
+            )
+        },
         "action": None,
     }
 
     if already and not restart:
-        warnings.warn("Keras is already imported; backend cannot be swapped without restart. Call swap_backend(..., restart=True) to re-exec.")
+        warnings.warn(
+            "Keras is already imported; backend cannot be swapped without restart. Call swap_backend(..., restart=True) to re-exec."
+        )
         # Apply env to current process for any child processes
         os.environ.update(env)
         summary["action"] = "env_set_no_restart"

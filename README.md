@@ -8,6 +8,9 @@
   <a href="https://afeinstein20.github.io/stella/"><img src="https://img.shields.io/badge/read-the_docs-3C1370.svg?style=flat"/></a>
   <a href="https://pypi.org/project/stella"><img alt="PyPI - Downloads" src="https://img.shields.io/pypi/dm/stella?color=D35968"></a>
   <a href="https://doi.org/10.21105/joss.02347">   <img src="https://joss.theoj.org/papers/10.21105/joss.02347/status.svg?color=D35968"></a>
+  <!-- Fork-specific docs status -->
+  <a href="https://github.com/benjaminpope/stella/actions/workflows/docs.yml"><img src="https://github.com/benjaminpope/stella/actions/workflows/docs.yml/badge.svg" alt="Docs Deploy"></a>
+  <a href="https://benjaminpope.github.io/stella/"><img src="https://img.shields.io/badge/docs-fork_pages-3C1370.svg?style=flat" alt="GitHub Pages"></a>
 </p>
 
 
@@ -29,22 +32,50 @@ Alternatively you can install the current development version of stella:
         cd stella
         python setup.py install
 
-Backend and models
-------------------
-- stella uses Keras Core with the JAX backend. Set the backend before importing `keras`:
+Backends and models
+-------------------
+- stella uses Keras Core and works with multiple backends: JAX or PyTorch. Choose one, install, and set it before importing `keras`:
 
 ```bash
+# JAX
+pip install -r requirements-jax.txt
 export KERAS_BACKEND=jax
+
+# or PyTorch
+pip install -r requirements-torch.txt
+export KERAS_BACKEND=torch
 ```
 
-- Models are saved/loaded in the native Keras format (`.keras`). If you have older `.h5`
-  models, re-save them once with TF-Keras and then use them with Keras Core:
+ Models are saved/loaded in the native Keras format (`.keras`). If you have older `.h5`
+  or legacy SavedModel models, use the included converter:
+
+```bash
+# Convert .h5 or legacy SavedModel to .keras (TensorFlow backend only for conversion)
+python scripts/convert_h5_to_keras.py /path/to/models -r --cadences 350 -o /path/to/out
+```
+
+Pipeline quickstart
+-------------------
+- See the new pipeline guide for a friendly, end-to-end example (TIC 62124646):
+  https://afeinstein20.github.io/stella/getting_started/pipeline.html
+
+Swap backends quickly
+---------------------
+- Inspect availability and devices:
 
 ```python
-# one-time conversion in an environment that has TensorFlow:
-import tensorflow as tf
-m = tf.keras.models.load_model("old.h5")
-m.save("new.keras")
+import stella
+stella.check_backend()
+```
+
+- Prepare a swap (restart your interpreter after):
+
+```python
+import stella
+stella.swap_backend('torch', accelerator='mps')   # Apple Silicon
+# or
+stella.swap_backend('jax', accelerator='cpu')
+```
 ```
 
 <p>

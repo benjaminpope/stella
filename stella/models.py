@@ -31,4 +31,3 @@ def get_model_path(name: Optional[str] = None) -> str:
 # Convenience precomputed list of model paths for notebooks and quickstarts
 # Equivalent to calling list_model_paths().
 models: List[str] = list_model_paths()
-

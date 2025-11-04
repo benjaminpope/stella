@@ -1,6 +1,7 @@
 import os
 import numpy as np
 from typing import Iterable, List, Optional, Sequence, Tuple, Union
+from tqdm import tqdm
 
 os.environ.setdefault("KERAS_BACKEND", "jax")
 
@@ -59,7 +60,9 @@ def _extract_series(
 
     # Tuple/arrays path
     if flux is None or flux_err is None:
-        raise ValueError("Provide either a LightCurve-like object or (times, flux, flux_err) arrays.")
+        raise ValueError(
+            "Provide either a LightCurve-like object or (times, flux, flux_err) arrays."
+        )
     t = _to_np(lc_or_times)
     f = _to_np(flux)
     e = _to_np(flux_err)
@@ -72,7 +75,7 @@ def predict(
     flux: Optional[Union[Sequence[float], np.ndarray]] = None,
     flux_err: Optional[Union[Sequence[float], np.ndarray]] = None,
     verbose: bool = True,
-    progress: str = 'auto',
+    progress: str = "auto",
     window_batch: Optional[int] = None,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """
@@ -103,7 +106,7 @@ def predict_ensemble(
     flux_err: Optional[Union[Sequence[float], np.ndarray]] = None,
     aggregate: str = "mean",
     verbose: bool = True,
-    progress: str = 'auto',
+    progress: str = "auto",
     window_batch: Optional[int] = None,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """
@@ -114,11 +117,22 @@ def predict_ensemble(
     t, f, e = _extract_series(lc_or_times, flux, flux_err)
     per_model = []
     t_ref = f_ref = e_ref = None
-    for mp in model_paths:
-        tt, ff, ee, pr = predict(mp, t, f, e, verbose=verbose, progress=progress, window_batch=window_batch)
-        if t_ref is None:
-            t_ref, f_ref, e_ref = tt, ff, ee
-        per_model.append(pr)
+
+    show_outer = verbose and (len(model_paths) > 1)
+    pbar = tqdm(total=len(model_paths), desc="Models") if show_outer else None
+    try:
+        for mp in model_paths:
+            tt, ff, ee, pr = predict(
+                mp, t, f, e, verbose=verbose, progress=progress, window_batch=window_batch
+            )
+            if t_ref is None:
+                t_ref, f_ref, e_ref = tt, ff, ee
+            per_model.append(pr)
+            if pbar is not None:
+                pbar.update(1)
+    finally:
+        if pbar is not None:
+            pbar.close()
 
     per_model = np.asarray(per_model)
     if aggregate == "median":
@@ -166,9 +180,18 @@ def predict_and_mark(
     Returns (times, flux, errs, preds, flare_table).
     """
     if isinstance(model_or_models, (list, tuple)):
-        t, f, e, preds, _ = predict_ensemble(model_or_models, lc_or_times, flux, flux_err, aggregate=aggregate, verbose=verbose)
+        t, f, e, preds, _ = predict_ensemble(
+            model_or_models,
+            lc_or_times,
+            flux,
+            flux_err,
+            aggregate=aggregate,
+            verbose=verbose,
+        )
     else:
-        t, f, e, preds = predict(model_or_models, lc_or_times, flux, flux_err, verbose=verbose)
+        t, f, e, preds = predict(
+            model_or_models, lc_or_times, flux, flux_err, verbose=verbose
+        )
 
     _, table = mark_flares_from_preds(target_id, t, f, e, preds, threshold=threshold)
     return t, f, e, preds, table
@@ -201,7 +224,9 @@ def remove_false_positives(
     mask = np.ones(len(flare_table), dtype=bool)
 
     if all(c in flare_table.colnames for c in ("rise", "fall")):
-        durations_min = (np.array(flare_table["rise"]) + np.array(flare_table["fall"])) * 24 * 60
+        durations_min = (
+            (np.array(flare_table["rise"]) + np.array(flare_table["fall"])) * 24 * 60
+        )
         mask &= durations_min >= float(min_duration_min)
 
     if drop_indices:

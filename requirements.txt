@@ -1,8 +1,6 @@
 nbsphinx
 ipykernel
 keras>=3.0.0
-jax>=0.4.20
-jaxlib>=0.4.20
 astroquery
 astropy
 tqdm

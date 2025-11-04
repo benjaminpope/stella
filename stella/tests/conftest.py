@@ -15,14 +15,21 @@ def pytest_addoption(parser):
 
 
 def pytest_configure(config):
-    config.addinivalue_line("markers", "integration: marks tests as integration (requires network/models)")
-    config.addinivalue_line("markers", "downloads: marks tests that may download small data; allowed by default")
+    config.addinivalue_line(
+        "markers", "integration: marks tests as integration (requires network/models)"
+    )
+    config.addinivalue_line(
+        "markers",
+        "downloads: marks tests that may download small data; allowed by default",
+    )
 
 
 def pytest_collection_modifyitems(config, items):
     if config.getoption("--run-integration"):
         return
-    skip_integration = pytest.mark.skip(reason="Integration tests are disabled. Use --run-integration to enable.")
+    skip_integration = pytest.mark.skip(
+        reason="Integration tests are disabled. Use --run-integration to enable."
+    )
     for item in items:
         if "integration" in item.keywords:
             item.add_marker(skip_integration)
@@ -30,9 +37,13 @@ def pytest_collection_modifyitems(config, items):
 
 def pytest_sessionstart(session):
     # Ensure Lightkurve uses the new cache path to avoid migration warnings
-    os.environ.setdefault("LIGHTKURVE_CACHE_DIR", str(Path.home() / ".lightkurve" / "cache"))
+    os.environ.setdefault(
+        "LIGHTKURVE_CACHE_DIR", str(Path.home() / ".lightkurve" / "cache")
+    )
     # Silence optional dependency warnings from Lightkurve PRF module
-    warnings.filterwarnings("ignore", message=r".*tpfmodel submodule is not available.*")
+    warnings.filterwarnings(
+        "ignore", message=r".*tpfmodel submodule is not available.*"
+    )
     warnings.filterwarnings("ignore", message=r".*Lightkurve cache directory.*")
 
 
@@ -45,7 +56,10 @@ def _debug_backend(request):
     if imported:
         try:
             import keras  # type: ignore
+
             current = keras.backend.backend()
         except Exception:
             current = "<error>"
-    print(f"[test {request.node.nodeid}] KERAS_BACKEND={be} keras_imported={imported} current={current}")
+    print(
+        f"[test {request.node.nodeid}] KERAS_BACKEND={be} keras_imported={imported} current={current}"
+    )
