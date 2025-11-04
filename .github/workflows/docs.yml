@@ -4,13 +4,13 @@ on:
   push:
     branches:
       - main
-      - feat/keras-jax
-    paths:
-      - 'docs/**'
-      - 'mkdocs.yml'
-      - 'stella/**'
-      - 'pyproject.toml'
-      - '.github/workflows/docs.yml'
+      - feat/**
+      - fix/**
+  pull_request:
+    branches:
+      - main
+      - feat/**
+      - fix/**
   workflow_dispatch:
 
 permissions:
