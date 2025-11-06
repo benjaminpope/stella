@@ -1,10 +1,7 @@
 import os, glob
 import warnings
 import numpy as np
-try:
-    from tqdm.notebook import tqdm  # prefer thin notebook bar
-except Exception:  # pragma: no cover
-    from tqdm.auto import tqdm
+from tqdm.auto import tqdm
 from .backends import require_backend as _require_backend
 _require_backend()
 import keras

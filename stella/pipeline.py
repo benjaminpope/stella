@@ -1,10 +1,7 @@
 import os
 import numpy as np
 from typing import Iterable, List, Optional, Sequence, Tuple, Union
-try:
-    from tqdm.notebook import tqdm  # prefer thin notebook bar
-except Exception:  # pragma: no cover
-    from tqdm.auto import tqdm
+from tqdm.auto import tqdm
 
 os.environ.setdefault("KERAS_BACKEND", "jax")
 
