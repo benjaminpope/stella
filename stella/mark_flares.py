@@ -1,5 +1,21 @@
 import numpy as np
-from tqdm.autonotebook import tqdm
+try:
+    from rich.progress import (
+        Progress,
+        SpinnerColumn,
+        BarColumn,
+        TimeRemainingColumn,
+        MofNCompleteColumn,
+        TextColumn,
+        track,
+    )
+    HAVE_RICH = True
+except Exception:  # pragma: no cover
+    HAVE_RICH = False
+try:
+    from tqdm.rich import tqdm
+except Exception:  # pragma: no cover
+    from tqdm.auto import tqdm
 import more_itertools as mit
 from astropy import units as u
 from astropy.table import Table
@@ -181,134 +197,276 @@ class FitFlares(object):
         kernel_size = 15
         kernel_size1 = 21
 
-        for i in tqdm(range(len(self.IDs)), desc="Finding & Fitting Flares"):
-            # Ensure numeric arrays (avoid object dtype from ragged wrappers)
-            time = np.asarray(self.time[i], dtype=float)
-            flux = np.asarray(self.flux[i], dtype=float)
-            err = np.asarray(self.flux_err[i], dtype=float)
-            prob = np.asarray(self.predictions[i], dtype=float)
+        total_targets = len(self.IDs)
+        def _tqdm_args(**kwargs):
+            mod = getattr(tqdm, "__module__", "")
+            if mod.startswith("tqdm.rich"):
+                kwargs.pop("position", None)
+                kwargs.pop("dynamic_ncols", None)
+            return kwargs
 
-            where_prob_higher = np.where(prob >= threshold)[0]
-            groupings = self.group_inds(where_prob_higher)
+        if HAVE_RICH:
+            for i in track(range(total_targets), description="Finding & Fitting Flares"):
+                    # Ensure numeric arrays (avoid object dtype from ragged wrappers)
+                    time = np.asarray(self.time[i], dtype=float)
+                    flux = np.asarray(self.flux[i], dtype=float)
+                    err = np.asarray(self.flux_err[i], dtype=float)
+                    prob = np.asarray(self.predictions[i], dtype=float)
 
-            tpeaks, amps = self.get_init_guesses(
-                groupings, time, flux, err, prob, 2, 50
-            )
+                    where_prob_higher = np.where(prob >= threshold)[0]
+                    groupings = self.group_inds(where_prob_higher)
 
-            # FITS PARAMETERS TO FLARE
-            for tp, amp in zip(tpeaks, amps):
-                # CASES FOR HANDLING BIG FLARES
-                if amp > 1.3:
-                    region = 400
-                    maskregion = 150
-                else:
-                    region = 40
-                    maskregion = 10
+                    tpeaks, amps = self.get_init_guesses(
+                        groupings, time, flux, err, prob, 2, 50
+                    )
 
-                where = np.where(time >= tp)[0][0]
+                    # FITS PARAMETERS TO FLARE
+                    for tp, amp in zip(tpeaks, amps):
+                        # CASES FOR HANDLING BIG FLARES
+                        if amp > 1.3:
+                            region = 400
+                            maskregion = 150
+                        else:
+                            region = 40
+                            maskregion = 10
 
-                subt = time[where - region : where + region]
-                subf = flux[where - region : where + region]
-                sube = err[where - region : where + region]
-                subp = prob[where - region : where + region]
-                amp_ind = int(len(subf) / 2)
+                        where = np.where(time >= tp)[0][0]
 
-                mask = np.zeros(len(subt))
-                mask[int(amp_ind - maskregion / 2.0) : int(amp_ind + maskregion)] = 1
-                m = mask == 0
+                        subt = time[where - region : where + region]
+                        subf = flux[where - region : where + region]
+                        sube = err[where - region : where + region]
+                        subp = prob[where - region : where + region]
+                        amp_ind = int(len(subf) / 2)
 
-                if len(mask) > 10:
-                    func = interp1d(subt[m], medfilt(subf[m], kernel_size=kernel_size))
-                    func1 = interp1d(subt, medfilt(subf, kernel_size=kernel_size1))
-                    # REMOVES LOCAL STELLAR VARIABILITY TO FIT FLARE
-                    detrended = subf / func(subt)
-                    std = np.nanstd(detrended[m])
-                    med = np.nanmedian(detrended[m])
+                        mask = np.zeros(len(subt))
+                        mask[int(amp_ind - maskregion / 2.0) : int(amp_ind + maskregion)] = 1
+                        m = mask == 0
 
-                    detrend_with_flare = subf / func1(subt)
-                    std1 = np.nanstd(detrend_with_flare)
-                    med1 = np.nanmedian(detrend_with_flare)
+                        if len(mask) > 10:
+                            func = interp1d(subt[m], medfilt(subf[m], kernel_size=kernel_size))
+                            func1 = interp1d(subt, medfilt(subf, kernel_size=kernel_size1))
+                            # REMOVES LOCAL STELLAR VARIABILITY TO FIT FLARE
+                            detrended = subf / func(subt)
+                            std = np.nanstd(detrended[m])
+                            med = np.nanmedian(detrended[m])
 
-                    amp = subf[amp_ind]
-                    amp1 = detrended[amp_ind]
+                            detrend_with_flare = subf / func1(subt)
+                            std1 = np.nanstd(detrend_with_flare)
+                            med1 = np.nanmedian(detrend_with_flare)
 
-                    if amp > 1.5:
-                        decay_guess = 0.008
-                        rise_guess = 0.003
-                    else:
-                        decay_guess = 0.001
-                        rise_guess = 0.0001
+                            amp = subf[amp_ind]
+                            amp1 = detrended[amp_ind]
 
-                    # Checks if amplitude of flare is 1.5sig, and the next 2 consecutive points < amp
-                    if (
-                        (amp1 > (med + 1.5 * std))
-                        and (subf[amp_ind + 1] <= amp)
-                        and (subf[amp_ind + 2] <= amp)
-                        and (subf[amp_ind - 1] <= amp)
-                    ):
+                            if amp > 1.5:
+                                decay_guess = 0.008
+                                rise_guess = 0.003
+                            else:
+                                decay_guess = 0.001
+                                rise_guess = 0.0001
 
-                        # Checks if next 2 consecutive points are > 1sig above
-                        if detrended[amp_ind + 1] >= (
-                            med1 + std1
-                        ):  # and (detrended[amp_ind+2] >= (med1+std1)):
+                            # Checks if amplitude of flare is 1.5sig, and the next 2 consecutive points < amp
+                            if (
+                                (amp1 > (med + 1.5 * std))
+                                and (subf[amp_ind + 1] <= amp)
+                                and (subf[amp_ind + 2] <= amp)
+                                and (subf[amp_ind - 1] <= amp)
+                            ):
 
-                            # Checks if point before amp < amp and that it isn't catching noise
-                            if (subf[amp_ind - 1] < amp) and ((amp - subf[-1]) < 2):
+                                # Checks if next 2 consecutive points are > 1sig above
+                                if detrended[amp_ind + 1] >= (
+                                    med1 + std1
+                                ):  # and (detrended[amp_ind+2] >= (med1+std1)):
 
-                                amp1 -= med
+                                    # Checks if point before amp < amp and that it isn't catching noise
+                                    if (subf[amp_ind - 1] < amp) and ((amp - subf[-1]) < 2):
 
-                                x = minimize(
-                                    chiSquare,
-                                    x0=[amp1, rise_guess, decay_guess],
-                                    bounds=(
-                                        (amp1 - 0.1, amp1 + 0.1),
-                                        (0.0001, 0.01),
-                                        (0.0005, 0.01),
-                                    ),
-                                    args=(
-                                        subt[
-                                            int(len(subt) / 2 - maskregion) : int(
-                                                len(subt) / 2 + maskregion
-                                            )
-                                        ],
-                                        detrended[
-                                            int(len(detrended) / 2 - maskregion) : int(
-                                                len(detrended) / 2 + maskregion
-                                            )
-                                        ],
-                                        sube[
-                                            int(len(sube) / 2 - maskregion) : int(
-                                                len(sube) / 2 + maskregion
-                                            )
-                                        ],
-                                        int(
-                                            len(
+                                        amp1 -= med
+
+                                        x = minimize(
+                                            chiSquare,
+                                            x0=[amp1, rise_guess, decay_guess],
+                                            bounds=(
+                                                (amp1 - 0.1, amp1 + 0.1),
+                                                (0.0001, 0.01),
+                                                (0.0005, 0.01),
+                                            ),
+                                            args=(
                                                 subt[
-                                                    int(
-                                                        len(subt) / 2 - maskregion
-                                                    ) : int(len(subt) / 2 + maskregion)
-                                                ]
+                                                    int(len(subt) / 2 - maskregion) : int(
+                                                        len(subt) / 2 + maskregion
+                                                    )
+                                                ],
+                                                detrended[
+                                                    int(len(detrended) / 2 - maskregion) : int(
+                                                        len(detrended) / 2 + maskregion
+                                                    )
+                                                ],
+                                                sube[
+                                                    int(len(sube) / 2 - maskregion) : int(
+                                                        len(sube) / 2 + maskregion
+                                                    )
+                                                ],
+                                                int(
+                                                    len(
+                                                        subt[
+                                                            int(
+                                                                len(subt) / 2 - maskregion
+                                                            ) : int(len(subt) / 2 + maskregion)
+                                                        ]
+                                                    )
+                                                    / 2
+                                                ),
+                                            ),
+                                            method="L-BFGS-B",
+                                        )
+
+                                        if x.x[0] > 1.5 or (x.x[0] < 1.5 and x.x[2] < 0.4):
+                                            fm, params = flare_lightcurve(
+                                                subt,
+                                                amp_ind,
+                                                np.nanmedian([amp1, x.x[0]]),
+                                                x.x[1],
+                                                x.x[2],
                                             )
-                                            / 2
-                                        ),
-                                    ),
-                                    method="L-BFGS-B",
-                                )
+                                            dur = np.trapz(fm - 1, subt) * u.day
+                                            params[1] = detrended[amp_ind]
+                                            params[2] = dur.to(u.s).value
+                                            params = np.append(params, subp[amp_ind])
+                                            params = np.append(np.array([self.IDs[i]]), params)
 
-                                if x.x[0] > 1.5 or (x.x[0] < 1.5 and x.x[2] < 0.4):
-                                    fm, params = flare_lightcurve(
-                                        subt,
-                                        amp_ind,
-                                        np.nanmedian([amp1, x.x[0]]),
-                                        x.x[1],
-                                        x.x[2],
-                                    )
-                                    dur = np.trapz(fm - 1, subt) * u.day
-                                    params[1] = detrended[amp_ind]
-                                    params[2] = dur.to(u.s).value
-                                    params = np.append(params, subp[amp_ind])
-                                    params = np.append(np.array([self.IDs[i]]), params)
+                                            table.add_row(params)
+        else:
+            # Use tqdm context manager instead of try/finally
+            with tqdm(total=total_targets, desc="Finding & Fitting Flares", **_tqdm_args(dynamic_ncols=True, leave=True)) as pbar:
+                for i in range(total_targets):
+                    # Ensure numeric arrays (avoid object dtype from ragged wrappers)
+                    time = np.asarray(self.time[i], dtype=float)
+                    flux = np.asarray(self.flux[i], dtype=float)
+                    err = np.asarray(self.flux_err[i], dtype=float)
+                    prob = np.asarray(self.predictions[i], dtype=float)
 
-                                    table.add_row(params)
+                    where_prob_higher = np.where(prob >= threshold)[0]
+                    groupings = self.group_inds(where_prob_higher)
+
+                    tpeaks, amps = self.get_init_guesses(
+                        groupings, time, flux, err, prob, 2, 50
+                    )
+
+                    # FITS PARAMETERS TO FLARE
+                    for tp, amp in zip(tpeaks, amps):
+                        # CASES FOR HANDLING BIG FLARES
+                        if amp > 1.3:
+                            region = 400
+                            maskregion = 150
+                        else:
+                            region = 40
+                            maskregion = 10
+
+                        where = np.where(time >= tp)[0][0]
+
+                        subt = time[where - region : where + region]
+                        subf = flux[where - region : where + region]
+                        sube = err[where - region : where + region]
+                        subp = prob[where - region : where + region]
+                        amp_ind = int(len(subf) / 2)
+
+                        mask = np.zeros(len(subt))
+                        mask[int(amp_ind - maskregion / 2.0) : int(amp_ind + maskregion)] = 1
+                        m = mask == 0
+
+                        if len(mask) > 10:
+                            func = interp1d(subt[m], medfilt(subf[m], kernel_size=kernel_size))
+                            func1 = interp1d(subt, medfilt(subf, kernel_size=kernel_size1))
+                            # REMOVES LOCAL STELLAR VARIABILITY TO FIT FLARE
+                            detrended = subf / func(subt)
+                            std = np.nanstd(detrended[m])
+                            med = np.nanmedian(detrended[m])
+
+                            detrend_with_flare = subf / func1(subt)
+                            std1 = np.nanstd(detrend_with_flare)
+                            med1 = np.nanmedian(detrend_with_flare)
+
+                            amp = subf[amp_ind]
+                            amp1 = detrended[amp_ind]
+
+                            if amp > 1.5:
+                                decay_guess = 0.008
+                                rise_guess = 0.003
+                            else:
+                                decay_guess = 0.001
+                                rise_guess = 0.0001
+
+                            # Checks if amplitude of flare is 1.5sig, and the next 2 consecutive points < amp
+                            if (
+                                (amp1 > (med + 1.5 * std))
+                                and (subf[amp_ind + 1] <= amp)
+                                and (subf[amp_ind + 2] <= amp)
+                                and (subf[amp_ind - 1] <= amp)
+                            ):
+
+                                # Checks if next 2 consecutive points are > 1sig above
+                                if detrended[amp_ind + 1] >= (
+                                    med1 + std1
+                                ):  # and (detrended[amp_ind+2] >= (med1+std1)):
+
+                                    # Checks if point before amp < amp and that it isn't catching noise
+                                    if (subf[amp_ind - 1] < amp) and ((amp - subf[-1]) < 2):
+
+                                        amp1 -= med
+
+                                        x = minimize(
+                                            chiSquare,
+                                            x0=[amp1, rise_guess, decay_guess],
+                                            bounds=(
+                                                (amp1 - 0.1, amp1 + 0.1),
+                                                (0.0001, 0.01),
+                                                (0.0005, 0.01),
+                                            ),
+                                            args=(
+                                                subt[
+                                                    int(len(subt) / 2 - maskregion) : int(
+                                                        len(subt) / 2 + maskregion
+                                                    )
+                                                ],
+                                                detrended[
+                                                    int(len(detrended) / 2 - maskregion) : int(
+                                                        len(detrended) / 2 + maskregion
+                                                    )
+                                                ],
+                                                sube[
+                                                    int(len(sube) / 2 - maskregion) : int(
+                                                        len(sube) / 2 + maskregion
+                                                    )
+                                                ],
+                                                int(
+                                                    len(
+                                                        subt[
+                                                            int(
+                                                                len(subt) / 2 - maskregion
+                                                            ) : int(len(subt) / 2 + maskregion)
+                                                        ]
+                                                    )
+                                                    / 2
+                                                ),
+                                            ),
+                                            method="L-BFGS-B",
+                                        )
+
+                                        if x.x[0] > 1.5 or (x.x[0] < 1.5 and x.x[2] < 0.4):
+                                            fm, params = flare_lightcurve(
+                                                subt,
+                                                amp_ind,
+                                                np.nanmedian([amp1, x.x[0]]),
+                                                x.x[1],
+                                                x.x[2],
+                                            )
+                                            dur = np.trapz(fm - 1, subt) * u.day
+                                            params[1] = detrended[amp_ind]
+                                            params[2] = dur.to(u.s).value
+                                            params = np.append(params, subp[amp_ind])
+                                            params = np.append(np.array([self.IDs[i]]), params)
+
+                                            table.add_row(params)
+                    pbar.update(1)
 
         self.flare_table = table[table["amp"] > 1.002]

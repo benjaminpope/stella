@@ -13,7 +13,6 @@ pyproject.toml
 requirements.txt
 .ci/build-docs.sh
 .ci/conda.sh
-.github/workflows/greetings.yml
 .github/workflows/stella-tests.yml
 docs/Makefile
 docs/api.rst

@@ -1,7 +1,23 @@
 import os, glob
 import warnings
 import numpy as np
-from tqdm.autonotebook import tqdm
+try:
+    from rich.progress import (
+        Progress,
+        SpinnerColumn,
+        BarColumn,
+        TimeRemainingColumn,
+        MofNCompleteColumn,
+        TextColumn,
+        track,
+    )
+    HAVE_RICH = True
+except Exception:  # pragma: no cover
+    HAVE_RICH = False
+try:
+    from tqdm.rich import tqdm
+except Exception:  # pragma: no cover
+    from tqdm.auto import tqdm
 from .backends import require_backend as _require_backend
 _require_backend()
 import keras
@@ -564,6 +580,9 @@ class ConvNN(object):
         progress: str = "auto",
         window_batch: int = None,
         tqdm_position: int = None,
+        tqdm_desc: str = None,
+        rich_progress: object = None,
+        rich_desc: str = None,
     ):
         """
         Takes in arrays of time and flux and predicts where the flares
@@ -647,10 +666,89 @@ class ConvNN(object):
         # Outer progress for multiple light curves
         # Outer bar only if predicting multiple light curves (rare in notebooks)
         show_outer = verbose and (len(times) > 1)
-        pbar = tqdm(
-            total=len(times), desc="Light Curves", position=(tqdm_position or 1), leave=False
-        ) if show_outer else None
-        try:
+        def _tqdm_args(**kwargs):
+            mod = getattr(tqdm, "__module__", "")
+            if mod.startswith("tqdm.rich"):
+                kwargs.pop("position", None)
+                kwargs.pop("dynamic_ncols", None)
+            return kwargs
+
+        if show_outer:
+            with tqdm(total=len(times), desc="Light Curves", **_tqdm_args(position=(tqdm_position or 1), leave=False)) as pbar:
+                for j in range(len(times)):
+                    time = np.array(times[j], dtype=float)
+                    lc = np.array(fluxes[j], dtype=float)
+                    err = np.array(errs[j], dtype=float)
+
+                    med = np.nanmedian(lc)
+                    if not np.isfinite(med) or med == 0.0:
+                        med = 1.0
+                    lc = lc / med
+
+                    q = (~np.isnan(time)) & (~np.isnan(lc))
+                    if err is not None and err.shape == time.shape:
+                        q = q & (~np.isnan(err))
+                    time, lc = time[q], lc[q]
+                    err = err[q] if err is not None else None
+
+                    # APPENDS MASKED LIGHT CURVES TO KEEP TRACK OF
+                    pred_t.append(time)
+                    pred_f.append(lc)
+                    pred_e.append(err if err is not None else np.zeros_like(time))
+
+                    good_inds = identify_gaps(time)
+
+                    reshaped_data = np.zeros((len(lc), cadences))
+                    for i in good_inds:
+                        loc0 = int(i - cad_pad)
+                        loc1 = int(i + cad_pad)
+                        reshaped_data[i] = lc[loc0:loc1]
+
+                    reshaped_data = reshaped_data.reshape(
+                        reshaped_data.shape[0], reshaped_data.shape[1], 1
+                    )
+
+                    # Suppress Keras internal bar to avoid duplicates; rely on our bars below
+                    predict_verbose = 0
+                    # Always show a per-model window bar in notebooks when verbose
+                    if verbose and (progress in ("auto", "windows")):
+                        total_windows = reshaped_data.shape[0]
+                        bs = window_batch if window_batch is not None else max(1024, cadences)
+                        preds = np.zeros((total_windows,), dtype=float)
+                        if HAVE_RICH:
+                            for i0 in track(range(0, total_windows, bs), description=(rich_desc or tqdm_desc or "Model Predict")):
+                                i1 = min(i0 + bs, total_windows)
+                                batch = reshaped_data[i0:i1]
+                                out = model.predict(batch, verbose=0)
+                                out = np.reshape(out, (len(out),))
+                                preds[i0:i1] = out
+                        else:
+                            with tqdm(
+                                total=total_windows,
+                                desc=(tqdm_desc or "Model Predict"),
+                                **_tqdm_args(position=(tqdm_position or 1), leave=False, dynamic_ncols=True),
+                            ) as wbar:
+                                for i0 in range(0, total_windows, bs):
+                                    i1 = min(i0 + bs, total_windows)
+                                    batch = reshaped_data[i0:i1]
+                                    out = model.predict(batch, verbose=0)
+                                    out = np.reshape(out, (len(out),))
+                                    preds[i0:i1] = out
+                                    wbar.update(i1 - i0)
+                                # ensure visual completion
+                                if wbar.n < (wbar.total or 0):
+                                    wbar.update((wbar.total or 0) - wbar.n)
+                                wbar.refresh()
+                    else:
+                        preds = model.predict(reshaped_data, verbose=predict_verbose)
+                        preds = np.reshape(preds, (len(preds),))
+                    predictions.append(preds)
+                    pbar.update(1)
+                # ensure visual completion
+                if pbar.n < (pbar.total or 0):
+                    pbar.update((pbar.total or 0) - pbar.n)
+                pbar.refresh()
+        else:
             for j in range(len(times)):
                 time = np.array(times[j], dtype=float)
                 lc = np.array(fluxes[j], dtype=float)
@@ -684,38 +782,57 @@ class ConvNN(object):
                     reshaped_data.shape[0], reshaped_data.shape[1], 1
                 )
 
-                # Suppress Keras internal bar to avoid duplicates; rely on tqdm below
+                # Suppress Keras internal bar to avoid duplicates; rely on our bars below
                 predict_verbose = 0
                 # Always show a per-model window bar in notebooks when verbose
                 if verbose and (progress in ("auto", "windows")):
                     total_windows = reshaped_data.shape[0]
                     bs = window_batch if window_batch is not None else max(1024, cadences)
                     preds = np.zeros((total_windows,), dtype=float)
-                    wbar = tqdm(
-                        total=total_windows,
-                        desc="Model Predict",
-                        position=(tqdm_position or 1),
-                        leave=False,
-                    )
-                    try:
-                        for i0 in range(0, total_windows, bs):
-                            i1 = min(i0 + bs, total_windows)
-                            batch = reshaped_data[i0:i1]
-                            out = model.predict(batch, verbose=0)
-                            out = np.reshape(out, (len(out),))
-                            preds[i0:i1] = out
-                            wbar.update(i1 - i0)
-                    finally:
-                        wbar.close()
+                    if rich_progress is not None and HAVE_RICH:
+                        task_id = rich_progress.add_task(
+                            (rich_desc or tqdm_desc or "Model Predict"), total=total_windows
+                        )
+                        try:
+                            for i0 in range(0, total_windows, bs):
+                                i1 = min(i0 + bs, total_windows)
+                                batch = reshaped_data[i0:i1]
+                                out = model.predict(batch, verbose=0)
+                                out = np.reshape(out, (len(out),))
+                                preds[i0:i1] = out
+                                rich_progress.update(task_id, advance=(i1 - i0))
+                        finally:
+                            try:
+                                rich_progress.update(task_id, completed=total_windows)
+                            except Exception:
+                                pass
+                    else:
+                        wbar = tqdm(
+                            total=total_windows,
+                            desc=(tqdm_desc or "Model Predict"),
+                            **_tqdm_args(position=(tqdm_position or 1), leave=False, dynamic_ncols=True),
+                        )
+                        try:
+                            for i0 in range(0, total_windows, bs):
+                                i1 = min(i0 + bs, total_windows)
+                                batch = reshaped_data[i0:i1]
+                                out = model.predict(batch, verbose=0)
+                                out = np.reshape(out, (len(out),))
+                                preds[i0:i1] = out
+                                wbar.update(i1 - i0)
+                        finally:
+                            try:
+                                remaining = (wbar.total or 0) - (wbar.n or 0)
+                                if remaining > 0:
+                                    wbar.update(remaining)
+                                wbar.refresh()
+                            except Exception:
+                                pass
+                            wbar.close()
                 else:
                     preds = model.predict(reshaped_data, verbose=predict_verbose)
                     preds = np.reshape(preds, (len(preds),))
                 predictions.append(preds)
-                if pbar is not None:
-                    pbar.update(1)
-        finally:
-            if pbar is not None:
-                pbar.close()
 
         self.predict_time = np.array(pred_t, dtype=object)
         self.predict_flux = np.array(pred_f, dtype=object)

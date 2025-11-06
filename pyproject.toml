@@ -63,6 +63,7 @@ dev = [
   "mkdocstrings[python]>=0.25",
   "mkdocs-jupyter>=0.25",
   "mkdocs-exclude>=1.0",
+  "rich>=13.0",
 ]
 all-backends = [
   "stella[jax,torch]",
