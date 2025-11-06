@@ -19,6 +19,11 @@ plugins:
             inherited_members: true
   - mkdocs-jupyter:
       execute: false
+  - exclude:
+      glob:
+        - getting_started/tutorial.md
+        - getting_started/shortest_demo.md
+        - getting_started/other_features.md
 
 markdown_extensions:
   - admonition
@@ -35,8 +40,8 @@ nav:
       - Installation: getting_started/installation.md
       - Pipeline: getting_started/pipeline.md
       - Backends: getting_started/backends.md
-      - Tutorial: getting_started/tutorial.md
-      - Shortest Demo: getting_started/shortest_demo.md
-      - Other Features: getting_started/other_features.md
+      - Tutorial (notebook): getting_started/tutorial.ipynb
+      - Shortest Demo (notebook): getting_started/shortest_demo.ipynb
+      - Other Features (notebook): getting_started/other_features.ipynb
   - API:
       - stella: api.md

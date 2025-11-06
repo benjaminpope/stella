@@ -1,7 +1,29 @@
 import os
 import numpy as np
 from typing import Iterable, List, Optional, Sequence, Tuple, Union
-from tqdm import tqdm
+try:
+    try:
+        from rich.progress import (
+            Progress,
+            SpinnerColumn,
+            BarColumn,
+            TimeRemainingColumn,
+            MofNCompleteColumn,
+            TextColumn,
+            track,
+        )
+        HAVE_RICH = True
+    except Exception:  # pragma: no cover
+        HAVE_RICH = False
+    from tqdm.rich import tqdm  # prefer thin rich-style bars when falling back
+    def _tqdm_args(**kwargs):
+        mod = getattr(tqdm, "__module__", "")
+        if mod.startswith("tqdm.rich"):
+            kwargs.pop("position", None)
+            kwargs.pop("dynamic_ncols", None)
+        return kwargs
+except Exception:  # pragma: no cover
+    from tqdm.auto import tqdm
 
 os.environ.setdefault("KERAS_BACKEND", "jax")
 
@@ -77,6 +99,10 @@ def predict(
     verbose: bool = True,
     progress: str = "auto",
     window_batch: Optional[int] = None,
+    tqdm_position: Optional[int] = None,
+    tqdm_desc: Optional[str] = None,
+    rich_progress: Optional[object] = None,
+    rich_desc: Optional[str] = None,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """
     Run a single Keras (.keras) model to produce per-cadence predictions.
@@ -93,6 +119,10 @@ def predict(
         verbose=verbose,
         progress=progress,
         window_batch=window_batch,
+        tqdm_position=tqdm_position,
+        tqdm_desc=tqdm_desc,
+        rich_progress=rich_progress,
+        rich_desc=rich_desc,
     )
     # predictions is shape (1, N)
     preds = np.asarray(cnn.predictions[0])
@@ -119,20 +149,63 @@ def predict_ensemble(
     t_ref = f_ref = e_ref = None
 
     show_outer = verbose and (len(model_paths) > 1)
-    pbar = tqdm(total=len(model_paths), desc="Models") if show_outer else None
-    try:
-        for mp in model_paths:
+    if HAVE_RICH and show_outer:
+        # Use Rich's track for reliable completion
+        for idx, mp in enumerate(track(model_paths, description="Models")):
             tt, ff, ee, pr = predict(
-                mp, t, f, e, verbose=verbose, progress=progress, window_batch=window_batch
+                mp,
+                t,
+                f,
+                e,
+                verbose=verbose,
+                progress=progress,
+                window_batch=window_batch,
+                tqdm_position=1,
+                tqdm_desc=f"Model {idx+1}/{len(model_paths)}",
             )
             if t_ref is None:
                 t_ref, f_ref, e_ref = tt, ff, ee
             per_model.append(pr)
-            if pbar is not None:
-                pbar.update(1)
-    finally:
-        if pbar is not None:
-            pbar.close()
+    else:
+        # Fallback to tqdm using a context manager (no finally)
+        if show_outer:
+            with tqdm(total=len(model_paths), desc="Models") as pbar:
+                for idx, mp in enumerate(model_paths):
+                    tt, ff, ee, pr = predict(
+                        mp,
+                        t,
+                        f,
+                        e,
+                        verbose=verbose,
+                        progress=progress,
+                        window_batch=window_batch,
+                        tqdm_position=1,
+                        tqdm_desc=f"Model {idx+1}/{len(model_paths)}",
+                    )
+                    if t_ref is None:
+                        t_ref, f_ref, e_ref = tt, ff, ee
+                    per_model.append(pr)
+                    pbar.update(1)
+                # ensure visual completion
+                if pbar.n < (pbar.total or 0):
+                    pbar.update((pbar.total or 0) - pbar.n)
+                pbar.refresh()
+        else:
+            for idx, mp in enumerate(model_paths):
+                tt, ff, ee, pr = predict(
+                    mp,
+                    t,
+                    f,
+                    e,
+                    verbose=verbose,
+                    progress=progress,
+                    window_batch=window_batch,
+                    tqdm_position=1,
+                    tqdm_desc=f"Model {idx+1}/{len(model_paths)}",
+                )
+                if t_ref is None:
+                    t_ref, f_ref, e_ref = tt, ff, ee
+                per_model.append(pr)
 
     per_model = np.asarray(per_model)
     if aggregate == "median":
