@@ -1,7 +1,7 @@
 import os, glob
 import warnings
 import numpy as np
-from tqdm import tqdm
+from tqdm.auto import tqdm
 from .backends import require_backend as _require_backend
 _require_backend()
 import keras
@@ -563,6 +563,7 @@ class ConvNN(object):
         verbose=True,
         progress: str = "auto",
         window_batch: int = None,
+        tqdm_position: int = None,
     ):
         """
         Takes in arrays of time and flux and predicts where the flares
@@ -647,7 +648,11 @@ class ConvNN(object):
         show_outer = (
             verbose and (progress in ("auto", "lightcurves")) and (len(times) > 1)
         )
-        pbar = tqdm(total=len(times), desc="Predicting") if show_outer else None
+        pbar = (
+            tqdm(total=len(times), desc="Predicting", position=(tqdm_position or 0), leave=False)
+            if show_outer
+            else None
+        )
         try:
             for j in range(len(times)):
                 time = np.array(times[j], dtype=float)
@@ -682,7 +687,8 @@ class ConvNN(object):
                     reshaped_data.shape[0], reshaped_data.shape[1], 1
                 )
 
-                predict_verbose = 1 if (verbose and len(times) == 1) else 0
+                # Suppress Keras internal bar to avoid duplicates; rely on tqdm below
+                predict_verbose = 0
                 # Window progress: only when explicitly requested
                 if verbose and (progress == "windows"):
                     total_windows = reshaped_data.shape[0]
@@ -692,7 +698,12 @@ class ConvNN(object):
                         else max(1024, cadences)
                     )
                     preds = np.zeros((total_windows,), dtype=float)
-                    wbar = tqdm(total=total_windows, desc="Predicting", leave=False)
+                    wbar = tqdm(
+                        total=total_windows,
+                        desc="Windows",
+                        position=(tqdm_position or 0),
+                        leave=False,
+                    )
                     try:
                         for i0 in range(0, total_windows, bs):
                             i1 = min(i0 + bs, total_windows)

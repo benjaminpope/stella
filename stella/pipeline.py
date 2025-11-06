@@ -1,7 +1,7 @@
 import os
 import numpy as np
 from typing import Iterable, List, Optional, Sequence, Tuple, Union
-from tqdm import tqdm
+from tqdm.auto import tqdm
 
 os.environ.setdefault("KERAS_BACKEND", "jax")
 
@@ -77,6 +77,7 @@ def predict(
     verbose: bool = True,
     progress: str = "auto",
     window_batch: Optional[int] = None,
+    tqdm_position: Optional[int] = None,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """
     Run a single Keras (.keras) model to produce per-cadence predictions.
@@ -93,6 +94,7 @@ def predict(
         verbose=verbose,
         progress=progress,
         window_batch=window_batch,
+        tqdm_position=tqdm_position,
     )
     # predictions is shape (1, N)
     preds = np.asarray(cnn.predictions[0])
@@ -119,11 +121,18 @@ def predict_ensemble(
     t_ref = f_ref = e_ref = None
 
     show_outer = verbose and (len(model_paths) > 1)
-    pbar = tqdm(total=len(model_paths), desc="Models") if show_outer else None
+    pbar = tqdm(total=len(model_paths), desc="Models", position=0, leave=True) if show_outer else None
     try:
         for mp in model_paths:
             tt, ff, ee, pr = predict(
-                mp, t, f, e, verbose=verbose, progress=progress, window_batch=window_batch
+                mp,
+                t,
+                f,
+                e,
+                verbose=verbose,
+                progress=progress,
+                window_batch=window_batch,
+                tqdm_position=1,
             )
             if t_ref is None:
                 t_ref, f_ref, e_ref = tt, ff, ee

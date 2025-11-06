@@ -19,6 +19,11 @@ plugins:
             inherited_members: true
   - mkdocs-jupyter:
       execute: false
+  - exclude:
+      glob:
+        - getting_started/tutorial.md
+        - getting_started/shortest_demo.md
+        - getting_started/other_features.md
 
 markdown_extensions:
   - admonition
