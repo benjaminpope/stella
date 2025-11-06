@@ -1,7 +1,10 @@
 import os, glob
 import warnings
 import numpy as np
-from tqdm.auto import tqdm
+try:
+    from tqdm.notebook import tqdm  # prefer thin notebook bar
+except Exception:  # pragma: no cover
+    from tqdm.auto import tqdm
 from .backends import require_backend as _require_backend
 _require_backend()
 import keras
@@ -645,14 +648,11 @@ class ConvNN(object):
         pred_t, pred_f, pred_e = [], [], []
 
         # Outer progress for multiple light curves
-        show_outer = (
-            verbose and (progress in ("auto", "lightcurves")) and (len(times) > 1)
-        )
-        pbar = (
-            tqdm(total=len(times), desc="Predicting", position=(tqdm_position or 0), leave=False)
-            if show_outer
-            else None
-        )
+        # Outer bar only if predicting multiple light curves (rare in notebooks)
+        show_outer = verbose and (len(times) > 1)
+        pbar = tqdm(
+            total=len(times), desc="Light Curves", position=(tqdm_position or 1), leave=False
+        ) if show_outer else None
         try:
             for j in range(len(times)):
                 time = np.array(times[j], dtype=float)
@@ -689,19 +689,15 @@ class ConvNN(object):
 
                 # Suppress Keras internal bar to avoid duplicates; rely on tqdm below
                 predict_verbose = 0
-                # Window progress: only when explicitly requested
-                if verbose and (progress == "windows"):
+                # Always show a per-model window bar in notebooks when verbose
+                if verbose and (progress in ("auto", "windows")):
                     total_windows = reshaped_data.shape[0]
-                    bs = (
-                        window_batch
-                        if window_batch is not None
-                        else max(1024, cadences)
-                    )
+                    bs = window_batch if window_batch is not None else max(1024, cadences)
                     preds = np.zeros((total_windows,), dtype=float)
                     wbar = tqdm(
                         total=total_windows,
-                        desc="Windows",
-                        position=(tqdm_position or 0),
+                        desc="Model Predict",
+                        position=(tqdm_position or 1),
                         leave=False,
                     )
                     try:

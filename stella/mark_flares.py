@@ -1,5 +1,8 @@
 import numpy as np
-from tqdm.auto import tqdm
+try:
+    from tqdm.notebook import tqdm  # prefer thin notebook bar
+except Exception:  # pragma: no cover
+    from tqdm.auto import tqdm
 import more_itertools as mit
 from astropy import units as u
 from astropy.table import Table
