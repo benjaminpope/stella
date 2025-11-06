@@ -1,5 +1,5 @@
 import numpy as np
-from tqdm.auto import tqdm
+from tqdm.autonotebook import tqdm
 import more_itertools as mit
 from astropy import units as u
 from astropy.table import Table

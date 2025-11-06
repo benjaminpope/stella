@@ -1,7 +1,7 @@
 import os
 import numpy as np
 from typing import Iterable, List, Optional, Sequence, Tuple, Union
-from tqdm.auto import tqdm
+from tqdm.autonotebook import tqdm
 
 os.environ.setdefault("KERAS_BACKEND", "jax")
 

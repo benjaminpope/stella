@@ -1,7 +1,7 @@
 import os, glob
 import warnings
 import numpy as np
-from tqdm.auto import tqdm
+from tqdm.autonotebook import tqdm
 from .backends import require_backend as _require_backend
 _require_backend()
 import keras
