@@ -21,6 +21,8 @@ _LAZY_EXPORTS = {
     "neural_network": ("neural_network", None),
     "mark_flares": ("mark_flares", None),
     "pipeline": ("pipeline", None),
+    "vetting": ("vetting", None),
+    "diagnostics": ("diagnostics", None),
     "rotations": ("rotations", None),
 }
 
@@ -52,5 +54,7 @@ __all__ = [
     "neural_network",
     "mark_flares",
     "pipeline",
+    "vetting",
+    "diagnostics",
     "rotations",
 ]

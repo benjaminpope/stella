@@ -54,6 +54,34 @@ export KERAS_BACKEND=torch
 python scripts/convert_h5_to_keras.py /path/to/models -r --cadences 350 -o /path/to/out
 ```
 
+Changes in 2026 (review of the JAX/Keras 3 port)
+------------------------------------------------
+A review of the port (see the pull request that added `stella.vetting`) changed several defaults.
+The network weights are unchanged and bitwise equal to the published models.
+
+- **NumPy 2**: `np.trapz` is no longer used. `predict_and_mark` accepts the default string `target_id`;
+  ragged multi-sector input, the median ensemble and gaps near the end of a light curve no longer crash.
+- **Ensemble aggregate**: `predict_ensemble` and `predict_and_mark` default to `aggregate="median"` (was `"mean"`),
+  as in the published method.
+- **Windows and gaps**: `ConvNN.predict(..., max_gap_cadences=5.5)`. A gap is a step longer than 5.5 cadences (11 min
+  at 2-min cadence). A cadence whose 200-cadence window runs past an end or across a gap is not scored: its
+  prediction is NaN (upstream zero-filled the window). Probabilities are float arrays, an object array when
+  light curves differ in length.
+- **Quality mask**: `stella.pipeline.FLARE_SAFE_BITMASK` (lightkurve's default bitmask without bit 512, "impulsive
+  outlier", which SPOC sets on flare peaks) replaces `quality == 0` for lightkurve input. Read the file with
+  `quality_bitmask="none"` so that this is the only selection.
+- **`FitFlares`**: one fitting routine (the rich and tqdm copies of the loop are gone); duplicate peaks are reported
+  once; fit windows are clipped at the ends instead of being skipped silently or mis-centred; new arguments
+  `cadence_days`, `gap_factor` (5.5), `rise_bounds`, `fall_bounds` and `min_amp` (1.002, the amplitude cut that
+  was hard-coded); new columns `prob_max`, `snr_peak`, `n_consec_3sigma`, `n_above`, `dist_gap`, `fit_at_bound`.
+- **Flags, never deletions**: `stella.diagnostics.dip_diagnostics` and the `near_dip` column and
+  `eclipse_like` metadata of `predict_and_mark` mark candidates near eclipses and transits. Masking eclipses is not done.
+- **Per-star ROC vetting**: `stella.vetting.flare_roc` chooses a threshold for a stated false-positive rate per day on
+  that star, using its flux-inverted light curve and injected flares; see
+  [Vetting flare candidates](docs/getting_started/vetting.md) for a worked example and the limits.
+- `MeasureProt` Lomb-Scargle periods are not reliable for eclipsing binaries or slow rotators: do not use them there.
+  (`averaged_per_sector` had swapped `np.full` arguments; fixed.)
+
 Pipeline quickstart
 -------------------
 - See the new pipeline guide for a friendly, end-to-end example (TIC 62124646):

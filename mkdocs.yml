@@ -39,6 +39,7 @@ nav:
       - About: getting_started/about.md
       - Installation: getting_started/installation.md
       - Pipeline: getting_started/pipeline.md
+      - Vetting and ROC: getting_started/vetting.md
       - Backends: getting_started/backends.md
       - Tutorial (notebook): getting_started/tutorial.ipynb
       - Shortest Demo (notebook): getting_started/shortest_demo.ipynb

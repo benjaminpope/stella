@@ -1,0 +1,161 @@
+{
+ "group_names": {
+  "gunther": "active M dwarfs (Gunther et al. 2020)",
+  "gunther_fast": "fast rotators (Gunther et al. 2020)",
+  "gunther_fgk": "FGK flare stars (Gunther et al. 2020)",
+  "quiet_m": "quiet M dwarfs",
+  "active_m": "AD Leo and Proxima Cen"
+ },
+ "stars": [
+  {
+   "label": "AU_Mic",
+   "tic": 441420236,
+   "sector": 1,
+   "group": "gunther"
+  },
+  {
+   "label": "TIC140045538",
+   "tic": 140045538,
+   "sector": 1,
+   "group": "gunther"
+  },
+  {
+   "label": "TIC150359500",
+   "tic": 150359500,
+   "sector": 1,
+   "group": "gunther"
+  },
+  {
+   "label": "TIC220433364",
+   "tic": 220433364,
+   "sector": 2,
+   "group": "gunther"
+  },
+  {
+   "label": "TIC201792346",
+   "tic": 201792346,
+   "sector": 2,
+   "group": "gunther"
+  },
+  {
+   "label": "TIC229807000",
+   "tic": 229807000,
+   "sector": 1,
+   "group": "gunther_fast"
+  },
+  {
+   "label": "TIC47423224",
+   "tic": 47423224,
+   "sector": 2,
+   "group": "gunther_fast"
+  },
+  {
+   "label": "TIC294329266",
+   "tic": 294329266,
+   "sector": 2,
+   "group": "gunther_fast"
+  },
+  {
+   "label": "TIC49619607",
+   "tic": 49619607,
+   "sector": 2,
+   "group": "gunther_fgk"
+  },
+  {
+   "label": "TIC206592394",
+   "tic": 206592394,
+   "sector": 2,
+   "group": "gunther_fgk"
+  },
+  {
+   "label": "TIC364588501",
+   "tic": 364588501,
+   "sector": 1,
+   "group": "gunther_fgk"
+  },
+  {
+   "label": "GJ_1151",
+   "tic": 11893637,
+   "sector": 22,
+   "group": "quiet_m"
+  },
+  {
+   "label": "GJ_1151",
+   "tic": 11893637,
+   "sector": 48,
+   "group": "quiet_m"
+  },
+  {
+   "label": "GJ_625",
+   "tic": 207492082,
+   "sector": 16,
+   "group": "quiet_m"
+  },
+  {
+   "label": "GJ_625",
+   "tic": 207492082,
+   "sector": 23,
+   "group": "quiet_m"
+  },
+  {
+   "label": "G_240-45",
+   "tic": 307957392,
+   "sector": 14,
+   "group": "quiet_m"
+  },
+  {
+   "label": "G_240-45",
+   "tic": 307957392,
+   "sector": 15,
+   "group": "quiet_m"
+  },
+  {
+   "label": "LP_169-22",
+   "tic": 148673115,
+   "sector": 21,
+   "group": "quiet_m"
+  },
+  {
+   "label": "LP_169-22",
+   "tic": 148673115,
+   "sector": 22,
+   "group": "quiet_m"
+  },
+  {
+   "label": "GJ_450",
+   "tic": 144400022,
+   "sector": 22,
+   "group": "quiet_m"
+  },
+  {
+   "label": "GJ_450",
+   "tic": 144400022,
+   "sector": 49,
+   "group": "quiet_m"
+  },
+  {
+   "label": "AD_Leo",
+   "tic": 95431305,
+   "sector": 45,
+   "group": "active_m"
+  },
+  {
+   "label": "AD_Leo",
+   "tic": 95431305,
+   "sector": 46,
+   "group": "active_m"
+  },
+  {
+   "label": "Proxima",
+   "tic": 388857263,
+   "sector": 11,
+   "group": "active_m"
+  },
+  {
+   "label": "Proxima",
+   "tic": 388857263,
+   "sector": 12,
+   "group": "active_m"
+  }
+ ]
+}

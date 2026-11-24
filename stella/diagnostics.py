@@ -96,29 +96,36 @@ def near_times(t, times, tol_days=0.1):
     return np.min(np.abs(t[:, None] - times[None, :]), axis=1) < tol_days
 
 
-def local_baseline(flux, window_cadences=181, nsig=3.0, grow=20, n_iter=2):
+def local_baseline(flux, window_cadences=181, nsig=3.0, grow_before=10, grow_after=60, n_iter=3):
     """Running-median baseline of a light curve that flares do not pull up.
 
     A first running median (``window_cadences``, default 181 = 6 h at 2 min) is
-    subtracted; cadences more than ``nsig`` robust sigma *above* it are
-    widened by ``grow`` cadences on each side and replaced by the first
-    median, and the median is taken again (``n_iter`` times in all). This keeps
-    a flare, which sits above the baseline, from lifting the baseline under
-    itself. A flare that fills more than half of the window cannot be
-    removed this way.
+    subtracted. Cadences more than ``nsig`` robust sigma *above* it are masked,
+    the mask is widened by ``grow_before`` cadences before and ``grow_after``
+    after (flares rise fast and decay slowly), the masked cadences are replaced
+    by a straight line between the unmasked ones either side, and the median is
+    taken again, ``n_iter`` times in all (each pass re-detects against the
+    cleaner baseline). A flare that fills more than about half of the window
+    still lifts the baseline.
     """
-    from scipy.ndimage import binary_dilation
-
     flux = np.asarray(flux, float)
-    work = flux.copy()
-    trend = median_filter(work, size=window_cadences, mode="nearest")
+    idx = np.arange(len(flux))
+    trend = median_filter(flux, size=window_cadences, mode="nearest")
     for _ in range(max(n_iter - 1, 0)):
         r = flux - trend
         sig = 1.4826 * np.nanmedian(np.abs(r - np.nanmedian(r)))
         if not np.isfinite(sig) or sig == 0:
             break
-        mask = binary_dilation(r > nsig * sig, iterations=int(grow))
-        work = np.where(mask, trend, flux)
+        hot = r > nsig * sig
+        # widen: before by grow_before, after by grow_after
+        mask = hot.copy()
+        for s in range(1, int(grow_before) + 1):
+            mask[:-s] |= hot[s:]
+        for s in range(1, int(grow_after) + 1):
+            mask[s:] |= hot[:-s]
+        if mask.all() or not mask.any():
+            break
+        work = np.where(mask, np.interp(idx, idx[~mask], flux[~mask]), flux)
         trend = median_filter(work, size=window_cadences, mode="nearest")
     return trend
 
