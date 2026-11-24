@@ -181,7 +181,10 @@ def _subprocess_benchmark(
     lcf = search_lightcurvefile(target=target, mission="TESS", sector=sector)
     lc = lcf.download().normalize().remove_nans()
     try:
-        lc = lc[lc.quality == 0]
+        from stella.pipeline import FLARE_SAFE_BITMASK
+
+        q = np.asarray(getattr(lc.quality, "value", lc.quality)).astype(int)
+        lc = lc[(q & FLARE_SAFE_BITMASK) == 0]
     except Exception:
         pass
 
