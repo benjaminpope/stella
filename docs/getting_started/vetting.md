@@ -103,8 +103,12 @@ light curves of 18000 cadences, plus one each for the real and inverted curve.
 ## Median or mean ensemble
 
 The default aggregate of `predict_ensemble` and `predict_and_mark` is the median, as in the published
-method. See the pull request that introduced `stella.vetting` for the comparison of the two on public TESS
-light curves (`examples/roc_median_vs_mean.py` reproduces it).
+method. `examples/roc_median_vs_mean.py` compares the two on 25 public TESS light curves (526 d, no eclipsing
+binaries). At the per-star threshold for 0.1 false positives per day, the median recovers 0.60 of the injected
+flares and the mean 0.57; paired over stars the median is higher by 0.029 +- 0.014, and by 0.025 +- 0.009 at 0.01
+per day. For the `"combined"` statistic the two are indistinguishable. The median is therefore the default.
+
+![Pooled ROC, median against mean](../assets/roc_median_vs_mean.png)
 
 ## Rotation periods
 

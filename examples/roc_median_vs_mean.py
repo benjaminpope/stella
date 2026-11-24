@@ -112,6 +112,19 @@ def summarise(outdir, figure=None):
                 m, a = pooled(ents, "median", statistic, target), pooled(ents, "mean", statistic, target)
                 fmt = lambda x: f"{x['rec']:.2f} ({x['lo']:.2f}-{x['hi']:.2f})"
                 print(f"| {gname} ({len(ents)}, {days:.0f} d) | {target} | {fmt(m)} | {fmt(a)} | {m['fp']:.3f} | {a['fp']:.3f} |")
+        print("\nPaired over stars (recovery of the median minus recovery of the mean, each at its own per-star threshold;"
+              " mean and standard error over star-sectors, and the number of stars where the median is higher / lower):\n")
+        for target in (0.01, 0.1):
+            for amp in (None, 0.01):
+                d = []
+                for info, rocs in entries:
+                    rr = [rocs[h].recovery(statistic, rocs[h].threshold_for_fp_rate(target, statistic), amp)[0]
+                          for h in ("median", "mean")]
+                    d.append(rr[0] - rr[1])
+                d = np.array(d)
+                se = d.std(ddof=1) / np.sqrt(len(d))
+                print(f"- target {target}/day, amplitude {'all' if amp is None else amp}: {d.mean():+.3f} +- {se:.3f}"
+                      f" ({(d > 0).sum()} up, {(d < 0).sum()} down, {(d == 0).sum()} equal of {len(d)})")
         print("\nSame, injected amplitude 1% only (all stars):\n")
         for target in (0.01, 0.1):
             m, a = pooled(entries, "median", statistic, target, 0.01), pooled(entries, "mean", statistic, target, 0.01)
