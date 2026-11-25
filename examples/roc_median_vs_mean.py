@@ -213,7 +213,7 @@ def summarise(outdir, figure=None):
             ax.legend()
         axes[0].set_ylabel("pooled recovery of injected flares")
         fig.tight_layout()
-        fig.savefig(figure, dpi=130)
+        fig.savefig(figure, dpi=130, bbox_inches="tight")
 
 
 if __name__ == "__main__":

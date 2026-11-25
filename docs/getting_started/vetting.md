@@ -111,12 +111,28 @@ light curves of 18000 cadences, plus one each for the real and inverted curve.
 ## Median or mean ensemble
 
 The default aggregate of `predict_ensemble` and `predict_and_mark` is the median, as in the published
-method. `examples/roc_median_vs_mean.py` compares the two on 25 public TESS light curves (526 d, no eclipsing
-binaries). At the per-star threshold for 0.1 false positives per day, the median recovers 0.60 of the injected
-flares and the mean 0.57; paired over stars the median is higher by 0.029 +- 0.014, and by 0.025 +- 0.009 at 0.01
-per day. For the `"combined"` statistic the two are indistinguishable. The median is therefore the default.
+method. `examples/roc_median_vs_mean.py` compares the two on 25 public TESS star-sectors (18 stars, 526 d,
+no eclipsing binaries), with each star's threshold chosen on its own inverted light curve.
 
-![Pooled ROC, median against mean](../assets/roc_median_vs_mean.png)
+* Statistic `"prob"`: at 0.1 false positives per day the median recovers 0.66 of the injected flares and the
+  mean 0.67; at 0.01 per day (below one false candidate per sector, so the cut sits above every false
+  candidate) 0.52 and 0.56. Paired over the 18 stars (a star seen in two sectors counts once), the median
+  minus the mean is -0.016 +- 0.019 at 0.1/day and -0.052 +- 0.038 at 0.01/day: the mean is nominally higher,
+  by less than 1.5 standard errors.
+* Statistic `"combined"`: the two are indistinguishable (+0.001 +- 0.001 and -0.002 +- 0.003).
+* The thresholds are in-sample, so the realised false-positive rate of 0 at low targets holds by construction.
+  Applying the threshold from one sector of a star to its other sector (14 pairs, 290 d), the realised rate is
+  0.031 per day (median) and 0.035 (mean) for a 0.01 target and `"prob"`, 0.079 and 0.097 for a 0.1 target, and
+  0 within 0.006 for `"combined"`.
+
+The difference is not significant, so the median stays the default. (A first run of this comparison, before
+the review fixes to group merging, injection sites and the run-length statistic, had the median ahead by
+about 2 standard errors at 0.1/day; the sign of a difference this small changes with such details, which is
+a further reason to keep the published default rather than a tuned one.)
+
+![Pooled recovery against the target false-positive rate, median against mean](../assets/roc_median_vs_mean.png)
+
+The shaded band is below one false candidate per sector, where a target cannot be resolved on one star's curve.
 
 ## Rotation periods
 
