@@ -20,6 +20,7 @@ operating characteristic (ROC), and what the cut does not cover.
 | `n_above` | cadences at or above the threshold in the group |
 | `dist_gap` | cadences from the peak to the nearest gap or end of the light curve |
 | `fit_at_bound` | the fitted rise or fall sits at its upper bound, so the duration and equivalent duration are lower limits (lower bounds are not flagged: a rise shorter than a cadence is unresolved) |
+| `rise_unresolved` | the fitted rise sits at its lower bound, so the rise is shorter than the fit can resolve and `rise` is an upper limit. This is a separate flag: `fit_at_bound` is unchanged and still covers the upper bounds only. The fit starts the rise at its lower bound when `amp` is below 1.5 and cannot move it from there, so almost every such flare carries the flag; it is informative mainly for larger flares |
 | `near_dip` | (`predict_and_mark` only) within 0.1 d of a dip found by `stella.diagnostics.dip_diagnostics` |
 
 `flare_table.meta` has `eclipse_like` and `n_dips`: two or more short, deep dips in the

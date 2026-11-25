@@ -396,3 +396,45 @@ def test_rotations_three_sectors_long_period_flags_without_crashing():
     out = mp.averaged_per_sector(tab)  # np.full(2, 3) used to fail on the flag assignment
     assert list(out["Flags"]) == [2, 2, 2]
     np.testing.assert_allclose(out["avg_period_days"], 12.5)
+
+
+# ---------------------------------------------------------------- rise_unresolved flag
+def _fit_planted(amp, rise, fall, seed=0):
+    from stella.mark_flares import FitFlares
+    from stella.utils import flare_lightcurve
+
+    rng = np.random.default_rng(seed)
+    t = np.arange(3000) * 2 / 1440
+    model, _ = flare_lightcurve(t, 1500, amp, rise, fall)
+    f = model + rng.normal(0, 1e-3, t.size)
+    p = np.zeros_like(t)
+    p[1498:1503] = 0.95
+    ff = FitFlares(id=[1], time=[t], flux=[f], flux_err=[np.full_like(t, 1e-3)], predictions=[p])
+    ff.identify_flare_peaks(threshold=0.5)
+    assert len(ff.flare_table) == 1
+    return ff.flare_table[0], ff
+
+
+def test_rise_unresolved_flags_sub_cadence_rise_but_not_fit_at_bound():
+    # rise of 1e-5 d is far shorter than a 2-min cadence (1.4e-3 d): the fit sits at rise_bounds[0]
+    row, ff = _fit_planted(1.0, 1e-5, 0.005)
+    assert row["rise_unresolved"] and not row["fit_at_bound"]
+    assert row["rise"] == pytest.approx(ff.rise_bounds[0])
+
+
+def test_resolved_flare_gets_neither_flag():
+    row, _ = _fit_planted(1.0, 0.003, 0.005)
+    assert not row["rise_unresolved"] and not row["fit_at_bound"]
+    assert row["rise"] == pytest.approx(0.003, rel=0.05)
+
+
+def test_fit_at_bound_still_means_upper_bounds_only():
+    # decay far longer than the upper bound: fit_at_bound, with the rise resolved
+    row, ff = _fit_planted(1.0, 0.008, 0.05)
+    assert row["fit_at_bound"] and not row["rise_unresolved"]
+    assert row["fall"] == pytest.approx(ff.fall_bounds[1])
+    # a rise pinned at its LOWER bound does not set fit_at_bound, however the decay is
+    row, _ = _fit_planted(1.0, 1e-5, 0.05)
+    assert row["fit_at_bound"] and row["rise_unresolved"]
+    row, _ = _fit_planted(1.0, 1e-5, 0.005)
+    assert not row["fit_at_bound"]

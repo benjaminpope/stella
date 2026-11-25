@@ -42,6 +42,13 @@ class FitFlares(object):
       and equivalent duration are lower limits; the lower bounds are not
       flagged, because a rise shorter than one cadence is unresolved in every
       2-min light curve);
+      ``rise_unresolved`` (the fitted rise sits at its LOWER fit bound, i.e. the
+      rise is shorter than the fit can resolve and the reported ``rise`` is an
+      upper limit; it is a separate flag and does not change ``fit_at_bound``.
+      The rise starts at its lower bound when the detrended peak ``amp`` is
+      below 1.5, and the fit cannot move it from there (no pre-peak cadence lies
+      within a few rise times), so the flag is set for almost all such flares
+      and is informative mainly for larger ones);
     * vetting statistics, always stored so that a cut can be chosen later
       without rerunning the network: ``prob_max`` (highest probability in the
       group), ``snr_peak`` (peak significance in sigma above a 6 h running
@@ -189,9 +196,10 @@ class FitFlares(object):
         fm, params = flare_lightcurve(subt, amp_ind, np.nanmedian([amp1, x.x[0]]), x.x[1], x.x[2])
         dur = _trapezoid(fm - 1, subt) * u.day
         at_bound = bool(np.isclose(x.x[1], self.rise_bounds[1]) or np.isclose(x.x[2], self.fall_bounds[1]))
+        rise_unresolved = bool(np.isclose(x.x[1], self.rise_bounds[0]))
         dist_gap = int(np.min(np.abs(edges - (lo + amp_ind))))
         return [tid, params[0], detrended[amp_ind], dur.to(u.s).value, params[3], params[4],
-                subp[amp_ind], int(group_size), dist_gap, at_bound,
+                subp[amp_ind], int(group_size), dist_gap, at_bound, rise_unresolved,
                 float(max(prob_max, subp[amp_ind]))]
 
     # ------------------------------------------------------------------ main
@@ -206,7 +214,7 @@ class FitFlares(object):
         flare_table : astropy.table.Table
              Target_ID, tpeak, amp (peak of the detrended flux, 1 + A),
              ed_s (equivalent duration of the fitted model, s), rise, fall
-             (days), prob, n_above, dist_gap, fit_at_bound, prob_max, snr_peak,
+             (days), prob, n_above, dist_gap, fit_at_bound, rise_unresolved, prob_max, snr_peak,
              n_consec_3sigma.
         n_skipped : int
              Candidates that could not be fitted because they sit at an end
@@ -214,8 +222,8 @@ class FitFlares(object):
         """
         self.threshold = threshold
         table = Table(names=["Target_ID", "tpeak", "amp", "ed_s", "rise", "fall", "prob",
-                             "n_above", "dist_gap", "fit_at_bound", "prob_max"],
-                      dtype=[object, float, float, float, float, float, float, int, int, bool, float])
+                             "n_above", "dist_gap", "fit_at_bound", "rise_unresolved", "prob_max"],
+                      dtype=[object, float, float, float, float, float, float, int, int, bool, bool, float])
         self.n_skipped = 0
         lc_index = []  # which light curve each row came from
         it = range(len(self.IDs))
