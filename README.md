@@ -73,7 +73,8 @@ The network weights are unchanged and bitwise equal to the published models.
 - **`FitFlares`**: one fitting routine (the rich and tqdm copies of the loop are gone); duplicate peaks are reported
   once; fit windows are clipped at the ends instead of being skipped silently or mis-centred; new arguments
   `cadence_days`, `gap_factor` (5.5), `rise_bounds`, `fall_bounds` and `min_amp` (1.002, the amplitude cut that
-  was hard-coded); new columns `prob_max`, `snr_peak`, `n_consec_3sigma`, `n_above`, `dist_gap`, `fit_at_bound`.
+  was hard-coded); new columns `prob_max`, `snr_peak`, `n_consec_3sigma`, `n_above`, `dist_gap`, `fit_at_bound`, `rise_unresolved`; the rise time now starts at one cadence instead of 1e-4 d for flares with raw
+  peak flux 1.5 or below, so it is actually fitted (fitted `rise` and `ed_s` change for those flares).
 - **Flags, never deletions**: `stella.diagnostics.dip_diagnostics` and the `near_dip` column and
   `eclipse_like` metadata of `predict_and_mark` mark candidates near eclipses and transits. Masking eclipses is not done.
 - **Per-star ROC vetting**: `stella.vetting.flare_roc` chooses a threshold for a stated false-positive rate per day on

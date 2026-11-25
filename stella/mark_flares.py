@@ -42,6 +42,18 @@ class FitFlares(object):
       and equivalent duration are lower limits; the lower bounds are not
       flagged, because a rise shorter than one cadence is unresolved in every
       2-min light curve);
+      ``rise_unresolved`` (the fitted rise sits at its LOWER fit bound, i.e. the
+      rise is shorter than the fit can resolve and ``rise`` is an upper limit; it
+      is a separate flag and does not change ``fit_at_bound``). Caveat at coarse
+      cadence: a rise below about 0.12 cadences leaves the model unchanged, so a
+      fit can stop on that flat stretch just above the lower bound and the flag
+      is then not set;
+    * the rise starts at one cadence of the light curve (median spacing in the
+      fit window, kept inside ``rise_bounds``) when the normalised flux at the
+      peak is 1.5 or below. Upstream started it at 1e-4 d, where the
+      chi-square is flat in the rise at 2-min cadence, so the optimiser never
+      moved it and ``rise`` was the starting value (and ``ed_s`` biased low);
+      flares with a peak above 1.5 start where upstream did, at 0.003 d;
     * vetting statistics, always stored so that a cut can be chosen later
       without rerunning the network: ``prob_max`` (highest probability in the
       group), ``snr_peak`` (peak significance in sigma above a 6 h running
@@ -154,7 +166,14 @@ class FitFlares(object):
         if amp > 1.5:
             decay_guess, rise_guess = 0.008, 0.003
         else:
-            decay_guess, rise_guess = 0.001, 0.0001
+            # Start the rise at one cadence of this light curve (median spacing in
+            # the window), inside its bounds. The Gaussian rise only affects cadences
+            # before the peak, so a start well below the cadence leaves the
+            # chi-square flat in ``rise`` (the previous cadence contributes
+            # exp(-dt^2 / 2 rise^2) ~ 0) and the optimiser never moves it.
+            dt = float(np.nanmedian(np.diff(subt)))
+            decay_guess = 0.001
+            rise_guess = float(np.clip(dt, *self.rise_bounds))
 
         # Acceptance rule of upstream stella: peak >= 1.5 sigma above the
         # out-of-flare median, the two following and one preceding points not
@@ -189,9 +208,10 @@ class FitFlares(object):
         fm, params = flare_lightcurve(subt, amp_ind, np.nanmedian([amp1, x.x[0]]), x.x[1], x.x[2])
         dur = _trapezoid(fm - 1, subt) * u.day
         at_bound = bool(np.isclose(x.x[1], self.rise_bounds[1]) or np.isclose(x.x[2], self.fall_bounds[1]))
+        rise_unresolved = bool(np.isclose(x.x[1], self.rise_bounds[0]))
         dist_gap = int(np.min(np.abs(edges - (lo + amp_ind))))
         return [tid, params[0], detrended[amp_ind], dur.to(u.s).value, params[3], params[4],
-                subp[amp_ind], int(group_size), dist_gap, at_bound,
+                subp[amp_ind], int(group_size), dist_gap, at_bound, rise_unresolved,
                 float(max(prob_max, subp[amp_ind]))]
 
     # ------------------------------------------------------------------ main
@@ -206,7 +226,7 @@ class FitFlares(object):
         flare_table : astropy.table.Table
              Target_ID, tpeak, amp (peak of the detrended flux, 1 + A),
              ed_s (equivalent duration of the fitted model, s), rise, fall
-             (days), prob, n_above, dist_gap, fit_at_bound, prob_max, snr_peak,
+             (days), prob, n_above, dist_gap, fit_at_bound, rise_unresolved, prob_max, snr_peak,
              n_consec_3sigma.
         n_skipped : int
              Candidates that could not be fitted because they sit at an end
@@ -214,8 +234,8 @@ class FitFlares(object):
         """
         self.threshold = threshold
         table = Table(names=["Target_ID", "tpeak", "amp", "ed_s", "rise", "fall", "prob",
-                             "n_above", "dist_gap", "fit_at_bound", "prob_max"],
-                      dtype=[object, float, float, float, float, float, float, int, int, bool, float])
+                             "n_above", "dist_gap", "fit_at_bound", "rise_unresolved", "prob_max"],
+                      dtype=[object, float, float, float, float, float, float, int, int, bool, bool, float])
         self.n_skipped = 0
         lc_index = []  # which light curve each row came from
         it = range(len(self.IDs))

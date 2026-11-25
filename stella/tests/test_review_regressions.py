@@ -396,3 +396,77 @@ def test_rotations_three_sectors_long_period_flags_without_crashing():
     out = mp.averaged_per_sector(tab)  # np.full(2, 3) used to fail on the flag assignment
     assert list(out["Flags"]) == [2, 2, 2]
     np.testing.assert_allclose(out["avg_period_days"], 12.5)
+
+
+# ---------------------------------------------------------------- rise_unresolved flag
+CADENCES_MIN = (2.0, 1.0 / 3.0)  # 2-min and 20-s light curves
+# 0.05 is a realistic flare (raw peak 1.05, so the rise starts at one cadence);
+# 1.0 takes the large-flare branch of _fit_one (raw peak above 1.5).
+AMPS = (0.05, 1.0)
+
+
+def _fit_planted(amp, rise, fall, cadence_min=2.0, seed=0):
+    from stella.mark_flares import FitFlares
+    from stella.utils import flare_lightcurve
+
+    dt = cadence_min / 1440
+    rng = np.random.default_rng(seed)
+    t = np.arange(3000) * dt
+    model, _ = flare_lightcurve(t, 1500, amp, rise, fall)
+    f = model + rng.normal(0, 1e-3, t.size)
+    p = np.zeros_like(t)
+    p[1498:1503] = 0.95
+    ff = FitFlares(id=[1], time=[t], flux=[f], flux_err=[np.full_like(t, 1e-3)], predictions=[p],
+                   cadence_days=dt)
+    ff.identify_flare_peaks(threshold=0.5)
+    assert len(ff.flare_table) == 1
+    return ff.flare_table[0], ff
+
+
+@pytest.mark.parametrize("cadence_min", CADENCES_MIN)
+@pytest.mark.parametrize("amp", AMPS)
+def test_rise_unresolved_flags_sub_cadence_rise_but_not_fit_at_bound(amp, cadence_min):
+    # a rise of 1e-5 d is far shorter than any cadence here: the fit ends at rise_bounds[0]
+    row, ff = _fit_planted(amp, 1e-5, 0.005, cadence_min)
+    assert row["rise_unresolved"] and not row["fit_at_bound"]
+    assert row["rise"] == pytest.approx(ff.rise_bounds[0])
+
+
+@pytest.mark.parametrize("cadence_min", CADENCES_MIN)
+@pytest.mark.parametrize("amp", AMPS)
+def test_resolved_flare_gets_neither_flag_and_rise_is_fitted(amp, cadence_min):
+    rise = 3 * cadence_min / 1440  # three cadences
+    row, _ = _fit_planted(amp, rise, 0.005, cadence_min)
+    assert not row["rise_unresolved"] and not row["fit_at_bound"]
+    assert 0.7 * rise < row["rise"] < 1.3 * rise  # fitted, not left at its starting value
+
+
+def test_small_flare_rise_is_fitted_not_left_at_its_start():
+    """Regression: for raw peak flux <= 1.5 the rise used to start at its lower bound,
+    where the chi-square is flat, and was never fitted."""
+    for rise in (0.003, 0.006):
+        row, _ = _fit_planted(0.05, rise, 0.005)
+        assert row["rise"] == pytest.approx(rise, rel=0.15) and not row["rise_unresolved"]
+
+
+@pytest.mark.parametrize("amp", AMPS)
+def test_fit_at_bound_still_means_upper_bounds_only(amp):
+    # decay far longer than the upper bound: fit_at_bound, with the rise resolved
+    row, ff = _fit_planted(amp, 0.006, 0.05)
+    assert row["fit_at_bound"] and not row["rise_unresolved"]
+    assert row["fall"] == pytest.approx(ff.fall_bounds[1])
+    # a rise pinned at its LOWER bound does not set fit_at_bound; a decay at its upper bound still does
+    row, _ = _fit_planted(amp, 1e-5, 0.005)
+    assert row["rise_unresolved"] and not row["fit_at_bound"]
+    row, _ = _fit_planted(amp, 1e-5, 0.05)
+    assert row["rise_unresolved"] and row["fit_at_bound"]
+
+
+def test_rise_unresolved_column_is_bool_on_empty_table():
+    from stella.mark_flares import FitFlares
+
+    t = np.arange(600) * 2 / 1440
+    ff = FitFlares(id=[1], time=[t], flux=[np.ones_like(t)], flux_err=[np.full_like(t, 1e-3)],
+                   predictions=[np.zeros_like(t)])
+    ff.identify_flare_peaks(threshold=0.5)
+    assert len(ff.flare_table) == 0 and ff.flare_table["rise_unresolved"].dtype == bool
