@@ -20,3 +20,7 @@ cnn.predict(
     errs=getattr(lc, "flux_err", None).value if getattr(lc, "flux_err", None) is not None else np.zeros_like(lc.time.value),
 )
 ```
+
+The packaged models are an ensemble. `stella.pipeline.predict_and_mark(stella.models.models, t, f, e)` predicts with all of
+them (median by default), finds and fits the candidates and flags the ones near dips. A candidate needs vetting before
+it is counted as a flare: see [Vetting and ROC](vetting.md), which also describes how to choose a cut for each star.

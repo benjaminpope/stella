@@ -24,7 +24,7 @@ import keras
 from scipy.interpolate import interp1d
 from astropy.table import Table, Column
 
-__all__ = ["ConvNN"]
+__all__ = ["ConvNN", "make_windows", "find_gaps"]
 
 
 class ConvNN(object):
@@ -568,6 +568,7 @@ class ConvNN(object):
         # Placeholder for further calibration steps
         return df
 
+
     def predict(
         self,
         modelname,
@@ -583,6 +584,8 @@ class ConvNN(object):
         tqdm_desc: str = None,
         rich_progress: object = None,
         rich_desc: str = None,
+        max_gap_cadences: float = 5.5,
+        cadence_days: float = None,
     ):
         """
         Takes in arrays of time and flux and predicts where the flares
@@ -592,252 +595,103 @@ class ConvNN(object):
         ----------
         modelname : str
              Path and filename of a model to load.
-        times : np.ndarray
-             Array of times to predict flares in.
-        fluxes : np.ndarray
-             Array of fluxes to predict flares in.
-        flux_errs : np.ndarray
-             Array of flux errors for predicted flares.
-        injected : bool, optional
-             Returns predictions instead of setting attribute. Used
-             for injection-recovery. Default is False.
+        times, fluxes, errs : np.ndarray or list of np.ndarray
+             One light curve (1-D arrays) or a list of light curves, which
+             may have different lengths.
+        max_gap_cadences : float
+             A step between consecutive cadences longer than this many
+             nominal cadences is a gap. Default 5.5 (11 min at 2-min
+             cadence): up to four missing cadences in a row are tolerated,
+             since single dropped or flagged cadences are common. Upstream
+             stella used median(dt) + 1.5 std(dt), which in a single sector
+             counts almost every dropped cadence as a gap.
+        cadence_days : float, optional
+             Nominal cadence; default is the median time step.
+
+        Notes
+        -----
+        The window for cadence i is flux[i-100 : i+100] (cadence i sits at
+        position 100 of 0..199), as in training. A cadence whose window would
+        run past an end of the series or across a gap is NOT scored: its
+        prediction is NaN. (Upstream stella scored a window of zeros there,
+        which returns about 0.01 to 0.11 depending on the model.)
 
         Attributes
         ----------
-        model : keras.models.Sequential
-             The model input with modelname.
-        predict_time : np.ndarray
-             The input times array.
-        predict_flux : np.ndarray
-             The input fluxes array.
-        predict_err : np.ndarray
-             The input flux errors array.
-        predictions : np.ndarray
-             An array of predictions from the model.
+        predict_time, predict_flux, predict_err : list of np.ndarray
+        predictions : list of np.ndarray (float, NaN where not scored)
         """
-
-        def identify_gaps(t):
-            """
-            Identifies which cadences can be predicted on given
-            locations of gaps in the data. Will always stay
-            cadences/2 away from the gaps.
-
-            Returns lists of good indices to predict on.
-            """
-            nonlocal cad_pad
-
-            # SETS ALL CADENCES AVAILABLE
-            all_inds = np.arange(0, len(t), 1, dtype=int)
-
-            # REMOVES BEGINNING AND ENDS
-            bad_inds = np.arange(0, cad_pad, 1, dtype=int)
-            bad_inds = np.append(
-                bad_inds, np.arange(len(t) - cad_pad, len(t), 1, dtype=int)
-            )
-
-            diff = np.diff(t)
-            med, std = np.nanmedian(diff), np.nanstd(diff)
-
-            bad = np.where(np.abs(diff) >= med + 1.5 * std)[0]
-            for b in bad:
-                bad_inds = np.append(
-                    bad_inds, np.arange(b - cad_pad, b + cad_pad, 1, dtype=int)
-                )
-            bad_inds = np.sort(bad_inds)
-            return np.delete(all_inds, bad_inds)
-
         model = keras.models.load_model(modelname)
-
         self.model = model
 
-        # GETS REQUIRED INPUT SHAPE FROM MODEL
         cadences = int(model.input_shape[1])
-        cad_pad = cadences // 2
 
-        # REFORMATS FOR A SINGLE LIGHT CURVE PASSED IN
-        if np.ndim(times) == 1:
-            times = [times]
-            fluxes = [fluxes]
-            errs = [errs]
+        # One light curve (1-D sequence of numbers) or a list of them
+        if len(times) == 0 or np.ndim(times[0]) == 0:
+            times, fluxes, errs = [times], [fluxes], [errs]
 
-        predictions = []
-        pred_t, pred_f, pred_e = [], [], []
+        predictions, pred_t, pred_f, pred_e = [], [], [], []
+        bs = window_batch if window_batch is not None else max(1024, cadences)
+        for j in range(len(times)):
+            time = np.asarray(times[j], dtype=float)
+            lc = np.asarray(fluxes[j], dtype=float)
+            err = (np.asarray(errs[j], dtype=float)
+                   if errs is not None and errs[j] is not None else np.zeros_like(time))
 
-        # Outer progress for multiple light curves
-        # Outer bar only if predicting multiple light curves (rare in notebooks)
-        show_outer = verbose and (len(times) > 1)
-        def _tqdm_args(**kwargs):
-            mod = getattr(tqdm, "__module__", "")
-            if mod.startswith("tqdm.rich"):
-                kwargs.pop("position", None)
-                kwargs.pop("dynamic_ncols", None)
-            return kwargs
+            q = np.isfinite(time) & np.isfinite(lc)
+            if err.shape == time.shape:
+                q &= np.isfinite(err)
+            time, lc, err = time[q], lc[q], err[q]
+            med = np.nanmedian(lc) if len(lc) else 1.0
+            if not np.isfinite(med) or med == 0.0:
+                med = 1.0
+            lc = lc / med  # MUST BE NORMALIZED (as in training)
+            err = err / med  # same scale as the flux, so chi-square in FitFlares is meaningful
 
-        if show_outer:
-            with tqdm(total=len(times), desc="Light Curves", **_tqdm_args(position=(tqdm_position or 1), leave=False)) as pbar:
-                for j in range(len(times)):
-                    time = np.array(times[j], dtype=float)
-                    lc = np.array(fluxes[j], dtype=float)
-                    err = np.array(errs[j], dtype=float)
+            pred_t.append(time)
+            pred_f.append(lc)
+            pred_e.append(err)
 
-                    med = np.nanmedian(lc)
-                    if not np.isfinite(med) or med == 0.0:
-                        med = 1.0
-                    lc = lc / med
+            X, scored = make_windows(time, lc, cadences,
+                                     max_gap_cadences=max_gap_cadences,
+                                     cadence_days=cadence_days)
+            preds = np.full(len(lc), np.nan)
+            idx = np.where(scored)[0]
+            show = verbose and progress in ("auto", "windows") and len(idx) > 0
+            task_id = None
+            if show and rich_progress is not None and HAVE_RICH:
+                task_id = rich_progress.add_task(rich_desc or tqdm_desc or "Model Predict", total=len(idx))
+            wbar = None
+            if show and task_id is None:
+                kw = dict(total=len(idx), desc=(tqdm_desc or "Model Predict"), leave=False)
+                if not getattr(tqdm, "__module__", "").startswith("tqdm.rich"):
+                    kw.update(position=(tqdm_position or 1), dynamic_ncols=True)
+                wbar = tqdm(**kw)
+            for i0 in range(0, len(idx), bs):
+                sl = idx[i0:i0 + bs]
+                out = model.predict(X[sl][..., None], verbose=0)
+                preds[sl] = np.reshape(out, (len(sl),))
+                if task_id is not None:
+                    rich_progress.update(task_id, advance=len(sl))
+                if wbar is not None:
+                    wbar.update(len(sl))
+            if wbar is not None:
+                wbar.close()
+            predictions.append(preds)
 
-                    q = (~np.isnan(time)) & (~np.isnan(lc))
-                    if err is not None and err.shape == time.shape:
-                        q = q & (~np.isnan(err))
-                    time, lc = time[q], lc[q]
-                    err = err[q] if err is not None else None
+        def _stack(arrs):
+            # (n_lc, N) float array when lengths agree; otherwise a 1-D object array
+            # of float arrays (np.asarray on ragged input raises under NumPy >= 1.24).
+            if len({len(a) for a in arrs}) <= 1:
+                return np.asarray(arrs, dtype=float)
+            out = np.empty(len(arrs), dtype=object)
+            out[:] = [np.asarray(a, dtype=float) for a in arrs]
+            return out
 
-                    # APPENDS MASKED LIGHT CURVES TO KEEP TRACK OF
-                    pred_t.append(time)
-                    pred_f.append(lc)
-                    pred_e.append(err if err is not None else np.zeros_like(time))
-
-                    good_inds = identify_gaps(time)
-
-                    reshaped_data = np.zeros((len(lc), cadences))
-                    for i in good_inds:
-                        loc0 = int(i - cad_pad)
-                        loc1 = int(i + cad_pad)
-                        reshaped_data[i] = lc[loc0:loc1]
-
-                    reshaped_data = reshaped_data.reshape(
-                        reshaped_data.shape[0], reshaped_data.shape[1], 1
-                    )
-
-                    # Suppress Keras internal bar to avoid duplicates; rely on our bars below
-                    predict_verbose = 0
-                    # Always show a per-model window bar in notebooks when verbose
-                    if verbose and (progress in ("auto", "windows")):
-                        total_windows = reshaped_data.shape[0]
-                        bs = window_batch if window_batch is not None else max(1024, cadences)
-                        preds = np.zeros((total_windows,), dtype=float)
-                        if HAVE_RICH:
-                            for i0 in track(range(0, total_windows, bs), description=(rich_desc or tqdm_desc or "Model Predict")):
-                                i1 = min(i0 + bs, total_windows)
-                                batch = reshaped_data[i0:i1]
-                                out = model.predict(batch, verbose=0)
-                                out = np.reshape(out, (len(out),))
-                                preds[i0:i1] = out
-                        else:
-                            with tqdm(
-                                total=total_windows,
-                                desc=(tqdm_desc or "Model Predict"),
-                                **_tqdm_args(position=(tqdm_position or 1), leave=False, dynamic_ncols=True),
-                            ) as wbar:
-                                for i0 in range(0, total_windows, bs):
-                                    i1 = min(i0 + bs, total_windows)
-                                    batch = reshaped_data[i0:i1]
-                                    out = model.predict(batch, verbose=0)
-                                    out = np.reshape(out, (len(out),))
-                                    preds[i0:i1] = out
-                                    wbar.update(i1 - i0)
-                                # ensure visual completion
-                                if wbar.n < (wbar.total or 0):
-                                    wbar.update((wbar.total or 0) - wbar.n)
-                                wbar.refresh()
-                    else:
-                        preds = model.predict(reshaped_data, verbose=predict_verbose)
-                        preds = np.reshape(preds, (len(preds),))
-                    predictions.append(preds)
-                    pbar.update(1)
-                # ensure visual completion
-                if pbar.n < (pbar.total or 0):
-                    pbar.update((pbar.total or 0) - pbar.n)
-                pbar.refresh()
-        else:
-            for j in range(len(times)):
-                time = np.array(times[j], dtype=float)
-                lc = np.array(fluxes[j], dtype=float)
-                err = np.array(errs[j], dtype=float)
-
-                med = np.nanmedian(lc)
-                if not np.isfinite(med) or med == 0.0:
-                    med = 1.0
-                lc = lc / med
-
-                q = (~np.isnan(time)) & (~np.isnan(lc))
-                if err is not None and err.shape == time.shape:
-                    q = q & (~np.isnan(err))
-                time, lc = time[q], lc[q]
-                err = err[q] if err is not None else None
-
-                # APPENDS MASKED LIGHT CURVES TO KEEP TRACK OF
-                pred_t.append(time)
-                pred_f.append(lc)
-                pred_e.append(err if err is not None else np.zeros_like(time))
-
-                good_inds = identify_gaps(time)
-
-                reshaped_data = np.zeros((len(lc), cadences))
-                for i in good_inds:
-                    loc0 = int(i - cad_pad)
-                    loc1 = int(i + cad_pad)
-                    reshaped_data[i] = lc[loc0:loc1]
-
-                reshaped_data = reshaped_data.reshape(
-                    reshaped_data.shape[0], reshaped_data.shape[1], 1
-                )
-
-                # Suppress Keras internal bar to avoid duplicates; rely on our bars below
-                predict_verbose = 0
-                # Always show a per-model window bar in notebooks when verbose
-                if verbose and (progress in ("auto", "windows")):
-                    total_windows = reshaped_data.shape[0]
-                    bs = window_batch if window_batch is not None else max(1024, cadences)
-                    preds = np.zeros((total_windows,), dtype=float)
-                    if rich_progress is not None and HAVE_RICH:
-                        task_id = rich_progress.add_task(
-                            (rich_desc or tqdm_desc or "Model Predict"), total=total_windows
-                        )
-                        try:
-                            for i0 in range(0, total_windows, bs):
-                                i1 = min(i0 + bs, total_windows)
-                                batch = reshaped_data[i0:i1]
-                                out = model.predict(batch, verbose=0)
-                                out = np.reshape(out, (len(out),))
-                                preds[i0:i1] = out
-                                rich_progress.update(task_id, advance=(i1 - i0))
-                        finally:
-                            try:
-                                rich_progress.update(task_id, completed=total_windows)
-                            except Exception:
-                                pass
-                    else:
-                        wbar = tqdm(
-                            total=total_windows,
-                            desc=(tqdm_desc or "Model Predict"),
-                            **_tqdm_args(position=(tqdm_position or 1), leave=False, dynamic_ncols=True),
-                        )
-                        try:
-                            for i0 in range(0, total_windows, bs):
-                                i1 = min(i0 + bs, total_windows)
-                                batch = reshaped_data[i0:i1]
-                                out = model.predict(batch, verbose=0)
-                                out = np.reshape(out, (len(out),))
-                                preds[i0:i1] = out
-                                wbar.update(i1 - i0)
-                        finally:
-                            try:
-                                remaining = (wbar.total or 0) - (wbar.n or 0)
-                                if remaining > 0:
-                                    wbar.update(remaining)
-                                wbar.refresh()
-                            except Exception:
-                                pass
-                            wbar.close()
-                else:
-                    preds = model.predict(reshaped_data, verbose=predict_verbose)
-                    preds = np.reshape(preds, (len(preds),))
-                predictions.append(preds)
-
-        self.predict_time = np.array(pred_t, dtype=object)
-        self.predict_flux = np.array(pred_f, dtype=object)
-        self.predict_err = np.array(pred_e, dtype=object)
-        self.predictions = np.array(predictions, dtype=object)
+        self.predict_time = _stack(pred_t)
+        self.predict_flux = _stack(pred_f)
+        self.predict_err = _stack(pred_e)
+        self.predictions = _stack(predictions)
 
         if injected:
             return (
@@ -846,3 +700,38 @@ class ConvNN(object):
                 self.predict_err,
                 self.predictions,
             )
+
+
+def find_gaps(time, max_gap_cadences=5.5, cadence_days=None):
+    """Indices b such that the step time[b] -> time[b+1] is a gap, i.e. longer
+    than ``max_gap_cadences`` nominal cadences (the median step by default)."""
+    diff = np.diff(time)
+    if len(diff) == 0:
+        return np.array([], dtype=int)
+    cad = cadence_days if cadence_days is not None else np.nanmedian(diff)
+    return np.where(diff > max_gap_cadences * cad)[0]
+
+
+def make_windows(time, lc, cadences=200, max_gap_cadences=5.5, cadence_days=None):
+    """Build one window per cadence, flux[i - cadences//2 : i + cadences//2].
+
+    Returns (X, scored): X has shape (n, cadences) and holds data only where
+    ``scored`` is True, i.e. the whole window lies inside the series and does
+    not cross a gap.
+    """
+    n = len(lc)
+    half = cadences // 2
+    X = np.zeros((n, cadences), dtype=np.float32)
+    scored = np.zeros(n, dtype=bool)
+    if n < cadences:
+        return X, scored
+    seg = np.zeros(n, dtype=int)
+    gaps = find_gaps(time, max_gap_cadences, cadence_days)
+    seg[gaps + 1] = 1
+    seg = np.cumsum(seg)  # segment label of each cadence
+    i = np.arange(half, n - half + 1)
+    ok = seg[i - half] == seg[i + half - 1]
+    for k in i[ok]:
+        X[k] = lc[k - half:k + half]
+    scored[i[ok]] = True
+    return X, scored

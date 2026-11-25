@@ -1,4 +1,5 @@
 import os
+import warnings
 import numpy as np
 from typing import Iterable, List, Optional, Sequence, Tuple, Union
 try:
@@ -33,6 +34,7 @@ from .neural_network import ConvNN
 from .mark_flares import FitFlares
 
 __all__ = [
+    "FLARE_SAFE_BITMASK",
     "predict",
     "predict_ensemble",
     "predict_and_mark",
@@ -47,30 +49,35 @@ def _to_np(x):
     return np.asarray(x)
 
 
+# lightkurve's "default" TESS bitmask (17087) WITHOUT bit 512 ("impulsive outlier"):
+# SPOC sets bit 512 on many flare peaks (29 of 442 Günther et al. 2020 peaks in the
+# review sample), so dropping those cadences removes the flare peak.
+FLARE_SAFE_BITMASK = 17087 & ~512
+
+
 def _extract_series(
     lc_or_times: Union[object, Sequence[float], np.ndarray],
     flux: Optional[Union[Sequence[float], np.ndarray]] = None,
     flux_err: Optional[Union[Sequence[float], np.ndarray]] = None,
+    quality_bitmask: int = FLARE_SAFE_BITMASK,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
     Accept either a lightkurve LightCurve-like object or (times, flux, flux_err).
     Ensures arrays are numpy and strips astropy units via .value when present.
+
+    For a LightCurve, cadences with ``quality & quality_bitmask != 0`` and NaNs
+    are removed. (Before the 2026 review every cadence with quality != 0 was
+    removed, which drops flare peaks flagged as impulsive outliers.) Read the
+    file with ``quality_bitmask="none"`` so that this is the only selection.
     """
     # LightCurve-like path (duck typing)
     if flux is None and hasattr(lc_or_times, "time") and hasattr(lc_or_times, "flux"):
         lc = lc_or_times
-        # Apply filtering whenever a LightCurve-like object is passed
-        try:
-            if hasattr(lc, "remove_nans"):
-                lc = lc.remove_nans().normalize()
-            if hasattr(lc, "quality"):
-                try:
-                    lc = lc[lc.quality == 0]
-                except Exception:
-                    pass
-        except Exception:
-            # Best-effort: continue without mutation
-            pass
+        if hasattr(lc, "quality"):
+            q = np.asarray(getattr(lc.quality, "value", lc.quality)).astype(int)
+            lc = lc[(q & int(quality_bitmask)) == 0]
+        if hasattr(lc, "remove_nans"):
+            lc = lc.remove_nans().normalize()
 
         t = _to_np(getattr(lc.time, "value", getattr(lc, "time", None)))
         f = _to_np(getattr(lc.flux, "value", getattr(lc, "flux", None)))
@@ -125,7 +132,7 @@ def predict(
         rich_desc=rich_desc,
     )
     # predictions is shape (1, N)
-    preds = np.asarray(cnn.predictions[0])
+    preds = np.asarray(cnn.predictions[0], dtype=float)
     return cnn.predict_time[0], cnn.predict_flux[0], cnn.predict_err[0], preds
 
 
@@ -134,14 +141,14 @@ def predict_ensemble(
     lc_or_times: Union[object, Sequence[float], np.ndarray],
     flux: Optional[Union[Sequence[float], np.ndarray]] = None,
     flux_err: Optional[Union[Sequence[float], np.ndarray]] = None,
-    aggregate: str = "mean",
+    aggregate: str = "median",
     verbose: bool = True,
     progress: str = "auto",
     window_batch: Optional[int] = None,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """
     Run an ensemble of models and aggregate predictions.
-    aggregate: 'mean' or 'median'.
+    aggregate: 'median' (default; as in the upstream stella tutorial and the 2021 SRSC run) or 'mean'. NaN (unscored) cadences are ignored.
     Returns (times, flux, errs, agg_preds, per_model_preds[models, N]).
     """
     t, f, e = _extract_series(lc_or_times, flux, flux_err)
@@ -207,11 +214,12 @@ def predict_ensemble(
                     t_ref, f_ref, e_ref = tt, ff, ee
                 per_model.append(pr)
 
-    per_model = np.asarray(per_model)
-    if aggregate == "median":
-        agg = np.nanmedian(per_model, axis=0)
-    else:
-        agg = np.nanmean(per_model, axis=0)
+    per_model = np.asarray(per_model, dtype=float)  # object dtype made nanmedian fail
+    if aggregate not in ("median", "mean"):
+        raise ValueError("aggregate must be 'median' or 'mean'")
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)  # cadences no model scored are NaN
+        agg = np.nanmedian(per_model, axis=0) if aggregate == "median" else np.nanmean(per_model, axis=0)
     return t_ref, f_ref, e_ref, agg, per_model
 
 
@@ -229,10 +237,10 @@ def mark_flares_from_preds(
     """
     fit = FitFlares(
         id=np.asarray([target_id]),
-        time=np.asarray([times]),
-        flux=np.asarray([flux]),
-        flux_err=np.asarray([errs]),
-        predictions=np.asarray([preds]),
+        time=[np.asarray(times, dtype=float)],
+        flux=[np.asarray(flux, dtype=float)],
+        flux_err=[np.asarray(errs, dtype=float)],
+        predictions=[np.asarray(preds, dtype=float)],
     )
     fit.identify_flare_peaks(threshold=threshold)
     return fit, fit.flare_table
@@ -245,12 +253,17 @@ def predict_and_mark(
     flux_err: Optional[Union[Sequence[float], np.ndarray]] = None,
     target_id: Union[str, int] = "target",
     threshold: float = 0.5,
-    aggregate: str = "mean",
+    aggregate: str = "median",
     verbose: bool = True,
+    dip_window_days: float = 0.3,
 ):
     """
     Convenience wrapper: predict (single or ensemble) and mark flares.
     Returns (times, flux, errs, preds, flare_table).
+
+    flare_table gains a boolean column ``near_dip`` (candidate within 0.1 d of
+    a dip found by ``stella.diagnostics.dip_diagnostics``) and
+    ``flare_table.meta['eclipse_like']`` (two or more dips in the light curve).
     """
     if isinstance(model_or_models, (list, tuple)):
         t, f, e, preds, _ = predict_ensemble(
@@ -267,6 +280,15 @@ def predict_and_mark(
         )
 
     _, table = mark_flares_from_preds(target_id, t, f, e, preds, threshold=threshold)
+
+    # Flags, never deletions: candidates near short deep dips (eclipses, transits,
+    # instrumental drops), where the network is known to fire.
+    from .diagnostics import dip_diagnostics, near_times
+
+    diag = dip_diagnostics(t, f, window_days=dip_window_days)
+    table["near_dip"] = near_times(np.asarray(table["tpeak"], float), diag["dip_times"], 0.1)
+    table.meta["eclipse_like"] = bool(diag["eclipse_like"])
+    table.meta["n_dips"] = int(diag["n_dips"])
     return t, f, e, preds, table
 
 
