@@ -16,10 +16,10 @@ operating characteristic (ROC), and what the cut does not cover.
 | `Target_ID`, `tpeak`, `amp`, `ed_s`, `rise`, `fall`, `prob` | as before: peak time, peak of the detrended flux, equivalent duration of the fit in seconds, fitted rise and fall in days, probability at the peak |
 | `prob_max` | highest ensemble probability in the candidate's group (statistic `"prob"`) |
 | `snr_peak` | peak significance in sigma above a 6 h running median (statistic `"snr"`); sigma is the MAD of the residuals within 0.5 d of the peak, excluding 30 min either side |
-| `n_consec_3sigma` | consecutive cadences from the peak at or above 3 sigma |
+| `n_consec_3sigma` | length of the run of consecutive cadences at or above 3 sigma that contains the peak cadence (counted before and after it) |
 | `n_above` | cadences at or above the threshold in the group |
 | `dist_gap` | cadences from the peak to the nearest gap or end of the light curve |
-| `fit_at_bound` | the fitted rise or fall sits at its bound, so the duration and equivalent duration are lower limits |
+| `fit_at_bound` | the fitted rise or fall sits at its upper bound, so the duration and equivalent duration are lower limits (lower bounds are not flagged: a rise shorter than a cadence is unresolved) |
 | `near_dip` | (`predict_and_mark` only) within 0.1 d of a dip found by `stella.diagnostics.dip_diagnostics` |
 
 `flare_table.meta` has `eclipse_like` and `n_dips`: two or more short, deep dips in the
@@ -27,7 +27,7 @@ light curve (eclipses, transits). These are **flags**; nothing is deleted. Eclip
 and transiting systems should be excluded or masked before flare rates are
 measured: stella was not trained on them and the probability reaches 1 at eclipse
 ingress and egress. `diagnostics.dip_diagnostics` also returns `dips_periodic`
-(three or more dips that fit one period), for information only.
+(four or more dips that fit one period, or two phases of one; random dip times pass a few per cent of the time), for information only. Running medians are taken within contiguous segments, so a gap does not create a step.
 
 The statistics are stored as columns so that a cut can be changed later without rerunning the network.
 
@@ -37,7 +37,7 @@ The statistics are stored as columns so that a cut can be changed later without 
 star's light curve:
 
 * **False positives** come from the *flux-inverted* light curve of the same star,
-  `2 * baseline - flux`, where the baseline is a running median from which
+  `2 * baseline - flux`, where the baseline is a running median (built per contiguous segment) from which
   flares are masked (`stella.diagnostics.local_baseline`). Real flares become dips,
   so every candidate accepted on the inverted curve is false. They are reported as
   a rate per day of *scored* time.
@@ -86,9 +86,17 @@ light curves of 18000 cadences, plus one each for the real and inverted curve.
 ### Limits
 
 * Inversion only measures false positives from sources that are **symmetric about the baseline**:
-  noise, rotation, many systematics. Asymmetric ones (eclipse egress, asteroid crossings,
-  scattered-light ramps, cosmic rays, contaminating flares from neighbours) are **not** measured. The
-  false-positive rate is a lower bound.
+  noise, and variability faster than about half of the 6 h baseline window (3 h), and many
+  systematics. Slower variability, including most **rotational modulation**, is part of the
+  running-median baseline and is left as it is, not inverted. Asymmetric sources (eclipse egress,
+  asteroid crossings, scattered-light ramps, cosmic rays, contaminating flares from neighbours) are
+  **not** measured either. The false-positive rate is a lower bound. `vetting.inversion_diagnostic(t, f, ax=ax)`
+  overlays the flux, the baseline and the inverted flux, to check them across rotational extrema and gaps.
+* The baseline is built separately in each contiguous segment (a step of more than 5.5 cadences is a
+  gap), and injections need a gap-free stretch of about 0.5 d plus the network window on either side.
+  The flux is normalised by one median over the whole input: for several sectors, normalise each first.
+* The 80-cadence exclusion around injections covers every real candidate made at `base_threshold` as well
+  as cadences with probability at least `avoid_threshold`, so a weak real candidate is not credited as a recovery.
 * Real flares appear as dips in the inverted curve. The baseline masks them
   (`local_baseline`), but a flare lasting more than about half of the 6 h window, or a star that flares
   almost continuously, still lifts the baseline; check `roc.meta["frac_above_baseline"]`.

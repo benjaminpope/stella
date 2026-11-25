@@ -37,11 +37,18 @@ How the curve is built
 Limits (read before using a threshold)
 --------------------------------------
 * Inversion only measures false positives from sources that are symmetric
-  about the baseline: white and red noise, rotational modulation, many
-  systematics. Positive-only or asymmetric false positives are NOT measured:
+  about the baseline: white and red noise, and variability on timescales
+  shorter than about half the baseline window (3 h for the default 6 h
+  window), and many systematics. Slower variability, including most
+  rotational modulation, is part of the running median, stays as it is, and is
+  not inverted; neither are positive-only or asymmetric false positives:
   eclipse egress, asteroid crossings, scattered-light ramps, cosmic rays,
   contaminating flares from neighbouring stars. The false-positive rate is a
-  lower bound.
+  lower bound. ``inversion_diagnostic`` plots flux, baseline and inverted flux
+  together, to check them across rotational extrema and gaps.
+* The baseline is built separately in each contiguous segment (a step of more
+  than ``max_gap_cadences`` cadences is a gap). The flux is normalised by one
+  median over the whole input: for several sectors, normalise each first.
 * The baseline is a running median (default 6 h). Flares are masked out of it,
   but a flare lasting more than about half the window, or a star that flares
   almost continuously, still pulls the baseline up; the inverted curve is then
@@ -57,6 +64,7 @@ Limits (read before using a threshold)
 * Recovery depends on the injected template and the amplitude/FWHM grid; it is
   not the recovery of real flares, whose shapes are more varied.
 """
+import functools
 import warnings
 
 import numpy as np
@@ -72,6 +80,7 @@ __all__ = [
     "EnsembleScorer",
     "FlareROC",
     "flare_roc",
+    "inversion_diagnostic",
     "candidate_statistic",
     "threshold_for_fp_rate",
     "threshold_for_fn_fraction",
@@ -406,11 +415,23 @@ class FlareROC(object):
 
         ax = ax or plt.gca()
         c = self.curve(statistic)
-        x = np.maximum(c["fp_rate"], 0.5 / self.exposure_days)
+        floor = 0.5 / self.exposure_days  # where a zero-count rate is drawn
+        # curve() runs from the lowest threshold (most false positives) up; plot with the
+        # false-positive rate increasing so that a step holds the recovery already
+        # achieved at a lower rate (an operating point you can actually choose)
+        fp = np.asarray(c["fp_rate"])
         names = ["recovery"] + ([f"recovery@{a:g}" for a in self.amplitudes] if by_amplitude else [])
         for nm in names:
-            ax.step(x, c[nm], where="post", label="all" if nm == "recovery" else nm.split("@")[1],
-                    lw=2 if nm == "recovery" else 1)
+            # ties in the false-positive rate (zero counts): keep the best recovery last
+            order = np.lexsort((np.asarray(c[nm]), fp))
+            x, y = np.maximum(fp[order], floor), np.asarray(c[nm])[order]
+            (line,) = ax.step(x, y, where="post", label="all" if nm == "recovery" else nm.split("@")[1],
+                              lw=2 if nm == "recovery" else 1)
+            if nm == "recovery":  # interval on the overall recovery
+                ax.fill_between(x, np.asarray(c[nm + "_lo"])[order], np.asarray(c[nm + "_hi"])[order],
+                                step="post", color=line.get_color(), alpha=0.15, lw=0)
+        ax.axvline(floor, color="0.5", ls=":", lw=1)
+        ax.annotate("0 false\ncandidates", (floor, 0.02), fontsize=7, color="0.4", ha="left", va="bottom")
         ax.set_xscale("log")
         ax.set_xlabel("false positives per day (inverted light curve)")
         ax.set_ylabel("recovery of injected flares")
@@ -443,6 +464,35 @@ def _clean(time, flux, err):
     if not np.isfinite(med) or med == 0:
         med = 1.0
     return time, flux / med, err / med
+
+
+def inversion_diagnostic(time, flux, err=None, baseline_window=181, max_gap_cadences=5.5,
+                         cadence_days=None, ax=None):
+    """The flux, its baseline and the inverted flux ``2 * baseline - flux`` that
+    ``flare_roc`` scores for false positives, so that they can be checked by eye.
+
+    Returns ``(time, flux, base, flux_inv)`` (flux normalised by its median); with
+    ``ax`` (or ``ax=True`` for the current axes) also plots them. Look at them
+    across rotational extrema (the baseline cannot follow variability faster
+    than about half the window, so it is left uninverted) and gaps.
+    """
+    time, flux, _ = _clean(time, flux, err)
+    cad = cadence_days if cadence_days is not None else float(np.nanmedian(np.diff(time)))
+    base = local_baseline(flux, window_cadences=baseline_window, time=time,
+                          gap_factor=max_gap_cadences, cadence_days=cad)
+    flux_inv = 2 * base - flux
+    flux_inv = flux_inv / np.nanmedian(flux_inv)
+    if ax is not None and ax is not False:
+        import matplotlib.pyplot as plt
+
+        ax = plt.gca() if ax is True else ax
+        ax.plot(time, flux, ".", ms=2, color="0.5", label="flux")
+        ax.plot(time, base, color="C1", lw=1.5, label="baseline")
+        ax.plot(time, flux_inv, ".", ms=2, color="C0", alpha=0.6, label="inverted")
+        ax.set_xlabel("time")
+        ax.set_ylabel("relative flux")
+        ax.legend(fontsize=8)
+    return time, flux, base, flux_inv
 
 
 def _candidates(fit_args, threshold, cadence_days):
@@ -523,29 +573,43 @@ def flare_roc(time, flux, err=None, scorer=None, aggregate="median", base_thresh
     P_real = _score_series(scorer, time, flux, scored, cad)
 
     # inverted light curve about the baseline (flares masked out of the baseline)
-    base = local_baseline(flux, window_cadences=baseline_window)
+    base = local_baseline(flux, window_cadences=baseline_window, time=time,
+                          gap_factor=max_gap_cadences, cadence_days=cadence_days)
     flux_inv = 2 * base - flux
     flux_inv = flux_inv / np.nanmedian(flux_inv)
     P_inv = _score_series(scorer, time, flux_inv, scored, cad)
 
     # injection sites: all windows that contain the flare and its tail are scored,
-    # and the real data has no candidate nearby
-    seg_half, tail_max = 400, 250
+    # and the real data has no candidate nearby. The segment around an injection
+    # must hold the windows (half + tail_max either side), the +-0.5 d used for the
+    # significance and the baseline, and lie in one contiguous stretch.
+    tail_max = 250
+    seg_half = max(int(np.ceil(0.5 / cadence_days)) + baseline_window // 2, half + tail_max, cad)
+    seg_id = np.concatenate([[0], np.cumsum(np.diff(time) > max_gap_cadences * cadence_days)])
     ok = np.zeros(n, bool)
     lo_k, hi_k = max(seg_half, half), n - seg_half - 1
     cs = np.concatenate([[0], np.cumsum(scored)])
     for k in range(lo_k, hi_k + 1):
         a, b = k - half, k + half + tail_max + 1  # windows scored for this injection
-        ok[k] = b <= n and cs[b] - cs[a] == b - a
+        ok[k] = (b <= n and cs[b] - cs[a] == b - a
+                 and seg_id[k - seg_half] == seg_id[k + seg_half])
     amp_cells = [(a, w) for a in amplitudes for w in fwhm_minutes]
     n_per = int(np.ceil(n_injections / len(amp_cells)))
     plan_cells = [c for c in amp_cells for _ in range(n_per)]
 
     # keep injections 80 cadences away from any real flare candidate, for every aggregate asked for
+    # (cadences with probability >= avoid_threshold, and every FitFlares candidate made
+    # at base_threshold, so a weak real candidate is never credited as a recovery)
     bad = np.zeros(n, bool)
     for how in aggs:
         pr = np.nan_to_num(_aggregate(P_real, how), nan=0.0)
         bad |= maximum_filter1d(pr, size=161) >= avoid_threshold
+        real_tab = _candidates((time, flux, err, pr), base_threshold, cadence_days)
+        if len(real_tab):
+            pk = np.searchsorted(time, np.asarray(real_tab["tpeak"]))
+            near = np.zeros(n, bool)
+            near[np.clip(pk, 0, n - 1)] = True
+            bad |= maximum_filter1d(near.astype(np.uint8), size=161).astype(bool)
     valid = np.where(ok & ~bad)[0]
     if len(valid) == 0:
         raise ValueError("no usable injection site: every scored stretch has a candidate nearby "
@@ -553,6 +617,8 @@ def flare_roc(time, flux, err=None, scorer=None, aggregate="median", base_thresh
     sites_k = rng.choice(valid, size=len(plan_cells))
     jitter = rng.uniform(-0.5, 0.5, size=len(plan_cells)) * cadence_days
     sigma = 1.4826 * np.nanmedian(np.abs(np.diff(flux))) / np.sqrt(2)
+    if template is davenport_flare:  # average over the actual exposure, not 2 min
+        template = functools.partial(davenport_flare, exposure_days=cadence_days)
 
     # score the injections, a chunk of them per network call
     inj = []  # (cell, k, tpk, seg_flux, P_seg)

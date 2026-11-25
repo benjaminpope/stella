@@ -89,7 +89,9 @@ def test_fitflares_fits_a_synthetic_flare():
     assert len(ff.flare_table) == 1
     row = ff.flare_table[0]
     assert abs(row["tpeak"] - t[1500]) < 1e-6
-    assert row["ed_s"] > 0
+    true_ed = 0.05 * (np.sqrt(np.pi / 2) * 0.0008 + 0.005) * 86400  # analytic integral, about 25.9 s
+    assert row["ed_s"] == pytest.approx(true_ed, rel=0.3)  # a no-op fit returns about 4.5 s
+    assert row["fall"] > 0.003  # injected 0.005 d; the starting point is 0.001 d
 
 
 def test_fitflares_no_duplicate_rows():
@@ -271,3 +273,126 @@ def test_fitflares_flare_near_end_and_start_does_not_crash():
     ff = FitFlares(id=[1], time=[t], flux=[f], flux_err=[np.full_like(t, 1e-3)], predictions=[p])
     ff.identify_flare_peaks(threshold=0.5)
     assert ff.n_skipped == 2 and len(ff.flare_table) == 0
+
+
+# ---------------------------------------------------------------- review round 2 (PR #7)
+def _flare_lc(seed=0, rise=0.0008, fall=0.005, n=3000):
+    from stella.utils import flare_lightcurve
+
+    rng = np.random.default_rng(seed)
+    t = np.arange(n) * 2 / 1440
+    model, _ = flare_lightcurve(t, 1500, 0.05, rise, fall)
+    return t, model, model + rng.normal(0, 1e-3, t.size)
+
+
+def test_fitflares_weak_precursor_does_not_replace_the_flare_group():
+    """A 0.15-probability group 30 cadences before a 0.98 flare resolves to the same peak at
+    threshold 0.1; the candidate must carry the flare's prob_max, not the precursor's."""
+    from stella.mark_flares import FitFlares
+
+    t, _, f = _flare_lc(1)
+    p = np.zeros_like(t)
+    p[1465:1468] = 0.15
+    p[1498:1503] = 0.98
+    ff = FitFlares(id=[1], time=[t], flux=[f], flux_err=[np.full_like(t, 1e-3)], predictions=[p])
+    ff.identify_flare_peaks(threshold=0.1)
+    assert len(ff.flare_table) == 1
+    row = ff.flare_table[0]
+    assert row["prob_max"] == pytest.approx(0.98) and row["n_above"] == 5
+
+
+def test_fitflares_group_metadata_stays_aligned_with_peaks():
+    from stella.mark_flares import FitFlares
+
+    t, _, f = _flare_lc(2)
+    ff = FitFlares(id=[1], time=[t], flux=[f], flux_err=[np.full_like(t, 1e-3)], predictions=[np.zeros_like(t)])
+    ff.threshold = 0.5
+    p = np.zeros_like(t)
+    p[1498:1503] = 0.9
+    groups = ff.group_inds(np.where(p >= 0.5)[0])
+    assert groups.dtype == object and groups.ndim == 1 and len(groups) == 1
+    guesses = ff.get_init_guesses(groups, t, f, np.full_like(t, 1e-3), p, 2, 50)
+    assert len(guesses) == 1 and guesses[0][2:] == (5, pytest.approx(0.9))
+
+
+@pytest.mark.parametrize("err_kind", ["good", "zeros"])
+def test_fitflares_fit_matches_the_injected_flare(err_kind):
+    """The fit must move away from its starting point (fall 0.001 d), with or without flux errors."""
+    from stella.mark_flares import FitFlares
+
+    t, model, f = _flare_lc(3)
+    e = np.full_like(t, 1e-3) if err_kind == "good" else np.zeros_like(t)
+    p = np.zeros_like(t)
+    p[1498:1503] = 0.95
+    ff = FitFlares(id=[1], time=[t], flux=[f], flux_err=[e], predictions=[p])
+    ff.identify_flare_peaks(threshold=0.5)
+    row = ff.flare_table[0]
+    true_ed = np.trapezoid(model - 1, t) * 86400 if hasattr(np, "trapezoid") else np.trapz(model - 1, t) * 86400
+    assert row["ed_s"] == pytest.approx(true_ed, rel=0.3)
+    assert row["fall"] > 0.003  # the injected fall is 0.005 d; the starting point is 0.001 d
+
+
+def test_dips_periodic_has_positive_degrees_of_freedom():
+    from stella.diagnostics import _dips_periodic
+
+    assert not _dips_periodic([1.0, 2.718, 13.142])  # any three times used to pass
+    assert not _dips_periodic([0.0, 3.0, 6.0])  # equal spacing of three is not evidence either
+    rng = np.random.default_rng(0)
+    for n in (3, 4, 5, 6, 8):  # random dip times: a few per cent at most
+        assert sum(_dips_periodic(np.sort(rng.uniform(0, 25, n))) for _ in range(200)) <= 20
+    assert _dips_periodic([0.0, 3.0, 6.0, 9.0])  # one phase, four cycles
+    assert _dips_periodic([0.0, 1.4, 3.0, 4.4, 6.0, 7.4])  # primary and secondary
+    assert _dips_periodic([0.4, 3.0, 4.4, 6.0, 7.4, 9.0])  # an isolated dropout comes first
+
+
+def test_dip_diagnostics_and_baseline_do_not_read_a_step_across_a_gap_as_a_dip():
+    from stella.diagnostics import dip_diagnostics
+
+    rng = np.random.default_rng(0)
+    t = np.arange(4000) * 2 / 1440
+    t[2000:] += 1.0  # downlink gap
+    f = 1 + rng.normal(0, 1e-3, t.size)
+    f[2000:] += 0.02  # the star's rotation moved it by 2% across the gap
+    assert dip_diagnostics(t, f)["n_dips"] == 0
+    from stella.diagnostics import local_baseline
+
+    b = local_baseline(f, time=t)
+    assert abs(b[1990] - 1.0) < 2e-3 and abs(b[2010] - 1.02) < 2e-3
+
+
+def test_n_consec_counts_the_rise_cadence_before_the_peak():
+    from stella.diagnostics import candidate_significance
+
+    rng = np.random.default_rng(1)
+    t = np.arange(3000) * 2 / 1440
+    f = 1 + rng.normal(0, 1e-3, t.size)
+    f[1999], f[2000] = f[1999] + 0.008, f[2000] + 0.01  # a two-cadence flare, peak on the second
+    snr, n = candidate_significance(t, f, [t[2000]])
+    assert snr[0] > 5 and n[0] == 2
+
+
+def test_predict_without_errors_and_with_raw_counts():
+    from stella import models as sm
+    from stella.neural_network import ConvNN
+
+    t, f, e = _aumic()
+    t, f, e = t[:1500], f[:1500], e[:1500]
+    cnn = ConvNN(output_dir=".")
+    cnn.predict(sm.get_model_path(), t, f, None, verbose=False)  # errs=None crashed with IndexError
+    assert np.all(np.asarray(cnn.predict_err[0]) == 0)
+    cnn.predict(sm.get_model_path(), t, f * 1e4, e * 1e4, verbose=False)  # raw-count scale
+    assert np.nanmedian(cnn.predict_err[0]) < 0.05  # relative, like the normalised flux
+    np.testing.assert_allclose(np.nanmedian(cnn.predict_flux[0]), 1.0)
+
+
+def test_rotations_three_sectors_long_period_flags_without_crashing():
+    from astropy.table import Table
+    from stella.rotations import MeasureProt
+
+    mp = MeasureProt.__new__(MeasureProt)
+    mp.IDs = np.array([7, 7, 7])
+    tab = Table({"Target_ID": [7, 7, 7], "period_days": [12.5, 12.5, 12.5],
+                 "secondary_period_days": [6.25, 6.25, 6.25], "oflag1": [0, 0, 0], "oflag2": [0, 0, 0]})
+    out = mp.averaged_per_sector(tab)  # np.full(2, 3) used to fail on the flag assignment
+    assert list(out["Flags"]) == [2, 2, 2]
+    np.testing.assert_allclose(out["avg_period_days"], 12.5)

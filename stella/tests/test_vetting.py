@@ -216,3 +216,64 @@ def test_worked_example_from_the_docs():
     out = roc.apply(table, "combined", thr)
     assert len(out) == len(table) and "vetted" in out.colnames
     assert out["vetted"].sum() <= len(table) and out.meta["vetting"]["statistic"] == "combined"
+
+
+# ---------------------------------------------------------------- review round 2 (PR #7)
+def test_plot_steps_stay_on_achievable_points(roc):
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    fig, ax = plt.subplots()
+    roc.plot("combined", ax=ax)
+    lines = [ln for ln in ax.get_lines() if len(ln.get_xdata()) > 2 and ln.get_drawstyle() == "steps-post"]
+    assert lines
+    for ln in lines:
+        x, y = ln.get_xdata(), ln.get_ydata()
+        assert np.all(np.diff(x) >= 0)  # false-positive rate increases along the curve
+        assert np.all(np.diff(y) >= -1e-12)  # and recovery does not fall
+    assert ax.collections  # the interval band is drawn
+    plt.close(fig)
+
+
+def test_inversion_diagnostic_returns_the_scored_arrays():
+    from stella.vetting import inversion_diagnostic
+
+    t, f = noise_lc(3, n=3000)
+    tt, ff, base, inv = inversion_diagnostic(t, f)
+    assert len(tt) == len(ff) == len(base) == len(inv) == 3000
+    np.testing.assert_allclose(inv * np.nanmedian(2 * base - ff), 2 * base - ff)
+
+
+def test_cadence_and_gap_handling_in_flare_roc():
+    """A 350-cadence model overflowed the injection segment; a gap inside the segment is refused."""
+
+    class Wide(FakeScorer):
+        cadences = 350
+
+        def score(self, X):
+            X = np.asarray(X, float)
+            med = np.median(X, axis=1)
+            mad = 1.4826 * np.median(np.abs(X - med[:, None]), axis=1) + 1e-12
+            z = (X[:, 175] - med) / mad
+            return np.stack([1 / (1 + np.exp(-2 * (z - 4.5)))] * 2)
+
+    t, f = noise_lc(11, n=9000)
+    t[4500:] += 0.5  # a gap in the middle
+    r = flare_roc(t, f, scorer=Wide(), n_injections=24, seed=2, amplitudes=(0.03,), fwhm_minutes=(6.0,))
+    assert len(r.injections) == 24 and r.meta["n_scored"] > 0
+    seg = np.asarray(r.injections["tpeak"])
+    assert not np.any((seg > t[4500] - 0.65) & (seg < t[4500] + 0.65))  # none within a segment of the gap
+
+
+def test_injections_avoid_weak_real_candidates():
+    """A real flare below avoid_threshold but above base_threshold must not be credited as a recovery."""
+    t, f = noise_lc(12, n=12000)
+    f = f.copy()
+    k = 6000
+    f += davenport_flare(t, t[k], 6 / 1440, 0.005)  # peak probability 0.45 in the fake scorer: above 0.1, below 0.5
+    r = flare_roc(t, f, scorer=FakeScorer(z0=5.5), n_injections=60, seed=4, amplitudes=(0.0001,),
+                  fwhm_minutes=(2.0,), avoid_threshold=0.9)
+    tp = np.asarray(r.injections["tpeak"])
+    assert not np.any(np.abs(tp - t[k]) < 80 * 2 / 1440)

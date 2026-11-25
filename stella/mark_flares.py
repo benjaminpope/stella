@@ -26,8 +26,7 @@ class FitFlares(object):
     threshold for accepting a flare event as a candidate.
 
     The detection and fitting logic is that of upstream stella
-    (Feinstein et al. 2020), with these changes (see docs/review_stella.md in
-    benjaminpope/srsc):
+    (Feinstein et al. 2020), with these changes:
 
     * one fitting routine instead of two copies of the loop;
     * ``np.trapezoid`` instead of ``np.trapz`` (removed in NumPy 2.x);
@@ -39,8 +38,10 @@ class FitFlares(object):
       are reported once;
     * extra diagnostic columns: ``n_above`` (cadences >= threshold in the
       group), ``dist_gap`` (cadences to the nearest gap or end of series),
-      ``fit_at_bound`` (rise or fall at a fit bound, i.e. the duration and
-      equivalent duration are lower limits);
+      ``fit_at_bound`` (rise or fall at its UPPER fit bound, i.e. the duration
+      and equivalent duration are lower limits; the lower bounds are not
+      flagged, because a rise shorter than one cadence is unresolved in every
+      2-min light curve);
     * vetting statistics, always stored so that a cut can be chosen later
       without rerunning the network: ``prob_max`` (highest probability in the
       group), ``snr_peak`` (peak significance in sigma above a 6 h running
@@ -82,12 +83,20 @@ class FitFlares(object):
             cur.append(int(v))
         if cur:
             results.append(np.asarray(cur, dtype=int))
-        return results
+        out = np.empty(len(results), dtype=object)  # 1-D object array, as upstream
+        for k, g in enumerate(results):
+            out[k] = g
+        return out
 
     def get_init_guesses(self, groupings, time, flux, err, prob, maskregion, region):
         """For each group, the time and flux of the highest-flux cadence with
-        probability >= threshold within +-region cadences (as upstream)."""
-        tpeaks, ampls = [], []
+        probability >= threshold within +-region cadences (as upstream).
+
+        Returns a list of ``(tpeak, flux_at_peak, group_size, group_max_prob)``
+        tuples. The group metadata travels with the peak, so a group that
+        yields no peak cannot shift the metadata of the ones after it.
+        """
+        out = []
         n = len(time)
         for g in groupings:
             lo = max(int(g[0]) - region, 0)
@@ -98,9 +107,8 @@ class FitFlares(object):
             if len(doubcheck) == 0:
                 continue
             k = doubcheck[np.argmax(subf[doubcheck])]
-            tpeaks.append(time[lo + k])
-            ampls.append(flux[lo + k])
-        return np.asarray(tpeaks, float), np.asarray(ampls, float)
+            out.append((time[lo + k], flux[lo + k], len(g), float(np.max(prob[g]))))
+        return out
 
     # ------------------------------------------------------------------ helpers
     def _gap_edges(self, time):
@@ -163,6 +171,11 @@ class FitFlares(object):
         f0, f1 = max(amp_ind - maskregion, 0), min(amp_ind + maskregion, len(subt))
         ft, fd, fe = subt[f0:f1], detrended[f0:f1], sube[f0:f1]
         ok = np.isfinite(fd) & np.isfinite(fe) & (fe > 0)
+        if ok.sum() < 3:
+            # No usable flux errors (all zero or missing, e.g. flux_err=None upstream of
+            # here): weight by the out-of-flare scatter instead of fitting nothing.
+            fe = np.full(len(fd), std if np.isfinite(std) and std > 0 else 1e-3)
+            ok = np.isfinite(fd)
         t0_ind = amp_ind - f0
 
         def chi_square(var):
@@ -178,7 +191,8 @@ class FitFlares(object):
         at_bound = bool(np.isclose(x.x[1], self.rise_bounds[1]) or np.isclose(x.x[2], self.fall_bounds[1]))
         dist_gap = int(np.min(np.abs(edges - (lo + amp_ind))))
         return [tid, params[0], detrended[amp_ind], dur.to(u.s).value, params[3], params[4],
-                subp[amp_ind], int(group_size), dist_gap, at_bound, float(prob_max)]
+                subp[amp_ind], int(group_size), dist_gap, at_bound,
+                float(max(prob_max, subp[amp_ind]))]
 
     # ------------------------------------------------------------------ main
     def identify_flare_peaks(self, threshold=0.5, verbose=False):
@@ -216,15 +230,19 @@ class FitFlares(object):
                 continue
             edges = self._gap_edges(time)
             groupings = self.group_inds(np.where(prob >= threshold)[0])
-            tpeaks, amps = self.get_init_guesses(groupings, time, flux, err, prob, 2, 50)
-            sizes = [len(g) for g in groupings]
-            gmax = [float(np.max(prob[g])) for g in groupings]
-            seen = set()
-            for tp, amp, gs, gm in zip(tpeaks, amps, sizes, gmax):
+            guesses = self.get_init_guesses(groupings, time, flux, err, prob, 2, 50)
+            # Groups that resolve to the same peak (a weak precursor within 50
+            # cadences of a flare) are merged BEFORE fitting: one candidate, with the
+            # largest group size and the highest probability of any merged group.
+            merged = {}
+            for tp, amp, gs, gm in guesses:
                 key = round(float(tp), 7)
-                if key in seen:  # two groups resolving to the same peak
-                    continue
-                seen.add(key)
+                if key in merged:
+                    old = merged[key]
+                    merged[key] = (tp, amp, max(old[2], gs), max(old[3], gm))
+                else:
+                    merged[key] = (tp, amp, gs, gm)
+            for tp, amp, gs, gm in merged.values():
                 row = self._fit_one(self.IDs[i], time, flux, err, prob, tp, amp, edges, gs, gm)
                 if row == "edge":
                     self.n_skipped += 1

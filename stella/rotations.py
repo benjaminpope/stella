@@ -404,7 +404,7 @@ class MeasureProt(object):
                     mode = stats.mode(np.round(all_periods, 2))
                     if mode > 11.5:
                         avg = np.full(len(inds), np.nanmean(primary))
-                        tflags = np.full(2, len(inds))
+                        tflags = np.full(len(inds), 2, dtype=int)
                     else:
                         for i in range(len(inds)):
                             if np.abs(primary[i] - mode) < limit:

@@ -635,7 +635,8 @@ class ConvNN(object):
         for j in range(len(times)):
             time = np.asarray(times[j], dtype=float)
             lc = np.asarray(fluxes[j], dtype=float)
-            err = np.asarray(errs[j], dtype=float) if errs is not None else np.zeros_like(time)
+            err = (np.asarray(errs[j], dtype=float)
+                   if errs is not None and errs[j] is not None else np.zeros_like(time))
 
             q = np.isfinite(time) & np.isfinite(lc)
             if err.shape == time.shape:
@@ -645,6 +646,7 @@ class ConvNN(object):
             if not np.isfinite(med) or med == 0.0:
                 med = 1.0
             lc = lc / med  # MUST BE NORMALIZED (as in training)
+            err = err / med  # same scale as the flux, so chi-square in FitFlares is meaningful
 
             pred_t.append(time)
             pred_f.append(lc)

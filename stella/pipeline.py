@@ -34,6 +34,7 @@ from .neural_network import ConvNN
 from .mark_flares import FitFlares
 
 __all__ = [
+    "FLARE_SAFE_BITMASK",
     "predict",
     "predict_ensemble",
     "predict_and_mark",
