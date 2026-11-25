@@ -438,3 +438,13 @@ def test_fit_at_bound_still_means_upper_bounds_only():
     assert row["fit_at_bound"] and row["rise_unresolved"]
     row, _ = _fit_planted(1.0, 1e-5, 0.005)
     assert not row["fit_at_bound"]
+
+
+def test_rise_unresolved_column_is_bool_on_empty_table():
+    from stella.mark_flares import FitFlares
+
+    t = np.arange(600) * 2 / 1440
+    ff = FitFlares(id=[1], time=[t], flux=[np.ones_like(t)], flux_err=[np.full_like(t, 1e-3)],
+                   predictions=[np.zeros_like(t)])
+    ff.identify_flare_peaks(threshold=0.5)
+    assert len(ff.flare_table) == 0 and ff.flare_table["rise_unresolved"].dtype == bool

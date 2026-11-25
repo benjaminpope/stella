@@ -42,13 +42,15 @@ class FitFlares(object):
       and equivalent duration are lower limits; the lower bounds are not
       flagged, because a rise shorter than one cadence is unresolved in every
       2-min light curve);
-      ``rise_unresolved`` (the fitted rise sits at its LOWER fit bound, i.e. the
-      rise is shorter than the fit can resolve and the reported ``rise`` is an
-      upper limit; it is a separate flag and does not change ``fit_at_bound``.
-      The rise starts at its lower bound when the detrended peak ``amp`` is
-      below 1.5, and the fit cannot move it from there (no pre-peak cadence lies
-      within a few rise times), so the flag is set for almost all such flares
-      and is informative mainly for larger ones);
+      ``rise_unresolved`` (the fitted rise sits at its LOWER fit bound; it is a
+      separate flag and does not change ``fit_at_bound``). Caveat: the fit starts
+      the rise at its lower bound when the normalised flux at the peak is 1.5 or
+      below (``_fit_one`` tests the raw peak flux, not the ``amp`` column), and
+      the chi-square gradient in the rise is zero there, so the rise is never
+      fitted and the flag is set for almost all such flares whatever their true
+      rise. Only where the fit can move the rise (peak flux above 1.5) does the
+      flag mean that the rise is shorter than the fit can resolve and ``rise`` is
+      an upper limit;
     * vetting statistics, always stored so that a cut can be chosen later
       without rerunning the network: ``prob_max`` (highest probability in the
       group), ``snr_peak`` (peak significance in sigma above a 6 h running
