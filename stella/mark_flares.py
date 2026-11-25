@@ -42,15 +42,18 @@ class FitFlares(object):
       and equivalent duration are lower limits; the lower bounds are not
       flagged, because a rise shorter than one cadence is unresolved in every
       2-min light curve);
-      ``rise_unresolved`` (the fitted rise sits at its LOWER fit bound; it is a
-      separate flag and does not change ``fit_at_bound``). Caveat: the fit starts
-      the rise at its lower bound when the normalised flux at the peak is 1.5 or
-      below (``_fit_one`` tests the raw peak flux, not the ``amp`` column), and
-      the chi-square gradient in the rise is zero there, so the rise is never
-      fitted and the flag is set for almost all such flares whatever their true
-      rise. Only where the fit can move the rise (peak flux above 1.5) does the
-      flag mean that the rise is shorter than the fit can resolve and ``rise`` is
-      an upper limit;
+      ``rise_unresolved`` (the fitted rise sits at its LOWER fit bound, i.e. the
+      rise is shorter than the fit can resolve and ``rise`` is an upper limit; it
+      is a separate flag and does not change ``fit_at_bound``). Caveat at coarse
+      cadence: a rise below about 0.12 cadences leaves the model unchanged, so a
+      fit can stop on that flat stretch just above the lower bound and the flag
+      is then not set;
+    * the rise starts at one cadence of the light curve (median spacing in the
+      fit window, kept inside ``rise_bounds``) when the normalised flux at the
+      peak is 1.5 or below. Upstream started it at 1e-4 d, where the
+      chi-square is flat in the rise at 2-min cadence, so the optimiser never
+      moved it and ``rise`` was the starting value (and ``ed_s`` biased low);
+      flares with a peak above 1.5 start where upstream did, at 0.003 d;
     * vetting statistics, always stored so that a cut can be chosen later
       without rerunning the network: ``prob_max`` (highest probability in the
       group), ``snr_peak`` (peak significance in sigma above a 6 h running
@@ -163,7 +166,14 @@ class FitFlares(object):
         if amp > 1.5:
             decay_guess, rise_guess = 0.008, 0.003
         else:
-            decay_guess, rise_guess = 0.001, 0.0001
+            # Start the rise at one cadence of this light curve (median spacing in
+            # the window), inside its bounds. The Gaussian rise only affects cadences
+            # before the peak, so a start well below the cadence leaves the
+            # chi-square flat in ``rise`` (the previous cadence contributes
+            # exp(-dt^2 / 2 rise^2) ~ 0) and the optimiser never moves it.
+            dt = float(np.nanmedian(np.diff(subt)))
+            decay_guess = 0.001
+            rise_guess = float(np.clip(dt, *self.rise_bounds))
 
         # Acceptance rule of upstream stella: peak >= 1.5 sigma above the
         # out-of-flare median, the two following and one preceding points not

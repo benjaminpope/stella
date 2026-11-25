@@ -20,7 +20,7 @@ operating characteristic (ROC), and what the cut does not cover.
 | `n_above` | cadences at or above the threshold in the group |
 | `dist_gap` | cadences from the peak to the nearest gap or end of the light curve |
 | `fit_at_bound` | the fitted rise or fall sits at its upper bound, so the duration and equivalent duration are lower limits (lower bounds are not flagged: a rise shorter than a cadence is unresolved; the lower bound of the rise is reported separately in `rise_unresolved`) |
-| `rise_unresolved` | the fitted rise sits at its lower bound. This is a separate flag: `fit_at_bound` is unchanged and still covers the upper bounds only. The fit starts the rise at its lower bound when the normalised flux at the peak is 1.5 or below and cannot move it from there, so almost every such flare carries the flag whatever its true rise, and `rise` is just the starting value. Only for flares with peak flux above 1.5 does the flag mean that the rise is shorter than the fit can resolve and `rise` is an upper limit |
+| `rise_unresolved` | the fitted rise sits at its lower bound, so the rise is shorter than the fit can resolve and `rise` is an upper limit. This is a separate flag: `fit_at_bound` is unchanged and still covers the upper bounds only. The rise starts at one cadence of the light curve (median spacing in the fit window), so it is fitted for every flare; at coarse cadences a fit can stop on the flat stretch just above the lower bound (a rise below about 0.12 cadences changes nothing) and the flag is then missed |
 | `near_dip` | (`predict_and_mark` only) within 0.1 d of a dip found by `stella.diagnostics.dip_diagnostics` |
 
 `flare_table.meta` has `eclipse_like` and `n_dips`: two or more short, deep dips in the
